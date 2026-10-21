@@ -8,6 +8,7 @@
   },
   "main": "./dist/extension.js",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "build": "tsc -p ./",
     "lint": "eslint src --ext ts",
     "test": "jest"
