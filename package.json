@@ -1,0 +1,20 @@
+{
+  "name": "vibe-deterministic-extension",
+  "displayName": "Vibe Deterministic Coder",
+  "description": "Deterministic guardrails & flow-state extension for vibe coders",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "tsc -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
+  }
+}
