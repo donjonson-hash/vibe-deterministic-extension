@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   verify-and-build:
-    name: Typecheck & Build Extension
+    name: Typecheck, Test & Build Extension
     runs-on: ubuntu-latest
 
     steps:
@@ -30,6 +30,9 @@ jobs:
 
       - name: Run TypeScript Typecheck
         run: npm run typecheck
+
+      - name: Run Deterministic Unit Tests
+        run: npm test
 
       - name: Build Extension (npm run build)
         run: npm run build
