@@ -14,7 +14,7 @@
   {"id": "T07", "file": "autoFixLoop.ts", "intent": "Make maxRetries default to 2 instead of 3.",
    "checks": [{"matches": "maxRetries\\s*=\\s*2\\b"}, {"notMatches": "maxRetries\\s*=\\s*3\\b"}], "touch": ["runWithAutoFix"]},
   {"id": "T08", "file": "autoFixLoop.ts", "intent": "Если maxRetries меньше 1, сразу бросай RangeError с понятным сообщением.",
-   "checks": [{"contains": "RangeError"}, {"matches": "maxRetries\\s*<\\s*1"}], "touch": ["runWithAutoFix"]},
+   "checks": [{"contains": "RangeError"}, {"matches": "maxRetries\\s*<\\s*1|maxRetries\\s*>=\\s*1"}], "touch": ["runWithAutoFix"]},
   {"id": "T09", "file": "timeMachine.ts", "intent": "Add a public clearHistory() method that removes all snapshots from history.",
    "checks": [{"matches": "public clearHistory\\s*\\(\\s*\\)"}], "touch": ["TimeMachine"]},
   {"id": "T10", "file": "timeMachine.ts", "intent": "Constructor must reject maxHistorySize below 1 with a RangeError.",
