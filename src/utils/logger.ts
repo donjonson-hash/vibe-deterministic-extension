@@ -15,6 +15,11 @@ export class DeterministicLogger {
   private entries: AuditLogEntry[] = [];
   private static readonly GENESIS_HASH = "0".repeat(64);
 
+  /**
+   * @param sink необязательный приемник записей (например, VS Code OutputChannel)
+   */
+  constructor(private readonly sink?: (entry: AuditLogEntry) => void) {}
+
   public log(level: LogLevel, module: string, message: string): AuditLogEntry {
     const index = this.entries.length;
     const prevHash =
@@ -35,6 +40,7 @@ export class DeterministicLogger {
     });
 
     this.entries.push(entry);
+    this.sink?.(entry);
     return entry;
   }
 

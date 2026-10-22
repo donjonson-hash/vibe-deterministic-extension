@@ -39,20 +39,16 @@ export class LinterRunner {
     };
 
     const visit = (node: ts.Node) => {
-      // 1. Запрет eval() (требование безопасности и Chrome Web Store Manifest V3)
-      if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "eval"
-      ) {
+      // 1. Запрет eval() (требование безопасности и Chrome Web Store Manifest V3),
+      //    включая globalThis.eval(...) / window.eval(...)
+      if (ts.isCallExpression(node) && LinterRunner.calleeName(node.expression) === "eval") {
         report(node, "no-eval", "Использование eval() строго запрещено политикой безопасности");
       }
 
-      // 2. Запрет конструктора new Function()
+      // 2. Запрет конструктора Function: и `new Function(...)`, и `Function(...)` без new
       if (
-        ts.isNewExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "Function"
+        (ts.isNewExpression(node) || ts.isCallExpression(node)) &&
+        LinterRunner.calleeName(node.expression) === "Function"
       ) {
         report(node, "no-new-func", "Динамическая генерация кода через new Function() запрещена");
       }
@@ -76,6 +72,50 @@ export class LinterRunner {
       passed: violations.length === 0,
       violations,
     };
+  }
+
+  /**
+   * Линтит результат патча, но блокирует только НОВЫЕ нарушения.
+   * Уже существующие в файле `any`/`debugger` не должны навсегда блокировать любой патч.
+   */
+  public lintPatch(originalCode: string, patchedCode: string, fileName = "virtual.ts"): LintResult {
+    const sourceLine = (code: string) => {
+      const lines = code.split("\n");
+      return (v: LintViolation) => `${v.ruleId}|${(lines[v.line - 1] ?? "").trim()}`;
+    };
+
+    const baselineKey = sourceLine(originalCode);
+    const baseline = new Map<string, number>();
+    for (const v of this.lintCode(originalCode, fileName).violations) {
+      const key = baselineKey(v);
+      baseline.set(key, (baseline.get(key) ?? 0) + 1);
+    }
+
+    const patchedKey = sourceLine(patchedCode);
+    const violations = this.lintCode(patchedCode, fileName).violations.filter((v) => {
+      const key = patchedKey(v);
+      const remaining = baseline.get(key) ?? 0;
+      if (remaining > 0) {
+        baseline.set(key, remaining - 1);
+        return false;
+      }
+      return true;
+    });
+
+    return { passed: violations.length === 0, violations };
+  }
+
+  private static calleeName(expression: ts.Expression): string | undefined {
+    if (ts.isIdentifier(expression)) {
+      return expression.text;
+    }
+    if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) {
+      const owner = expression.expression;
+      if (ts.isIdentifier(owner) && ["globalThis", "window", "self", "global"].includes(owner.text)) {
+        return expression.name.text;
+      }
+    }
+    return undefined;
   }
 
   public formatViolations(result: LintResult): string {

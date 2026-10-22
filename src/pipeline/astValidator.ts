@@ -1,5 +1,6 @@
 import * as ts from "typescript";
 import { CodePatch } from "../llm/schemaParser";
+import { applySearchReplace } from "../utils/patch";
 
 export interface AstValidationResult {
   valid: boolean;
@@ -43,16 +44,15 @@ export class AstValidator {
    * Применяет патч к исходному коду в памяти и сразу валидирует AST результата
    */
   public applyAndValidatePatch(originalCode: string, patch: CodePatch): AstValidationResult {
-    if (!originalCode.includes(patch.searchBlock)) {
-      return {
-        valid: false,
-        errors: [
-          `SearchBlockNotFound: Не найден целевой блок кода "${patch.searchBlock}" в файле ${patch.targetFile}`,
-        ],
-      };
+    const applied = applySearchReplace(originalCode, patch.searchBlock, patch.replaceBlock);
+    if (!applied.ok) {
+      const message =
+        applied.reason === "AMBIGUOUS"
+          ? `SearchBlockAmbiguous: Блок "${patch.searchBlock}" встречается ${applied.occurrences} раз(а) в файле ${patch.targetFile} — нужен уникальный фрагмент`
+          : `SearchBlockNotFound: Не найден целевой блок кода "${patch.searchBlock}" в файле ${patch.targetFile}`;
+      return { valid: false, errors: [message] };
     }
 
-    const candidateCode = originalCode.replace(patch.searchBlock, patch.replaceBlock);
-    return this.validateSyntax(candidateCode, patch.targetFile);
+    return this.validateSyntax(applied.code, patch.targetFile);
   }
 }

@@ -43,7 +43,9 @@ export class VoiceInputNormalizer {
     }
 
     cleaned = cleaned
-      .replace(/[,.!?]+/g, " ")
+      // Точку внутри слова не трогаем, иначе "auth.ts" превращается в "auth ts"
+      .replace(/[,.!?]+(?=\s|$)/g, " ")
+      .replace(/[,!?]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 

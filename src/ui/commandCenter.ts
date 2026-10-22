@@ -52,7 +52,7 @@ export class CommandCenter {
 
   private detectCategory(text: string): IntentCategory {
     const lower = text.toLowerCase();
-    if (/(исправь|баг|ошибк| почини|fix|bug|error)/i.test(lower)) {
+    if (/(исправь|баг|ошибк|почини|fix|bug|error)/i.test(lower)) {
       return "BUGFIX";
     }
     if (/(тест|проверь|spec|test|assert)/i.test(lower)) {

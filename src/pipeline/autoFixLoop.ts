@@ -1,4 +1,5 @@
 import { VibeStateMachine } from "../core/stateMachine";
+import { SchemaValidationError } from "../llm/schemaParser";
 
 export async function runWithAutoFix(
   stateMachine: VibeStateMachine,
@@ -10,7 +11,20 @@ export async function runWithAutoFix(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     stateMachine.transitionTo(attempt === 1 ? "GENERATING_LLM" : "AUTO_FIX_LOOP");
-    const rawResponse = await generateFn(lastError);
+    let rawResponse: string;
+    try {
+      rawResponse = await generateFn(lastError);
+    } catch (err) {
+      // Невалидный по схеме ответ LLM — это тоже ошибка, которую модель должна исправить.
+      // Сетевые/HTTP ошибки и прочие сбои пробрасываем сразу.
+      if (!(err instanceof SchemaValidationError)) {
+        stateMachine.transitionTo("FAILED");
+        throw err;
+      }
+      lastError = err.message;
+      console.warn(`[AutoFixLoop] Попытка ${attempt}/${maxRetries}: ответ нарушает схему: ${lastError}`);
+      continue;
+    }
 
     stateMachine.transitionTo("VALIDATING_PIPELINE");
     const validation = await validateFn(rawResponse);

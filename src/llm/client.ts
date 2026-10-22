@@ -25,6 +25,7 @@ export interface DeterministicLLMClientOptions {
   seed?: number;
   apiEndpoint?: string;
   apiKey?: string;
+  requestTimeoutMs?: number;
   transport?: LLMTransport;
 }
 
@@ -33,6 +34,7 @@ export class DeterministicLLMClient {
   private readonly seed: number;
   private readonly apiEndpoint: string;
   private readonly apiKey: string;
+  private readonly requestTimeoutMs: number;
   private readonly transport: LLMTransport;
   private readonly responseCache = new Map<string, string>();
 
@@ -41,6 +43,7 @@ export class DeterministicLLMClient {
     this.seed = options.seed ?? 42;
     this.apiEndpoint = options.apiEndpoint ?? "https://api.openai.com/v1/chat/completions";
     this.apiKey = options.apiKey ?? process.env.VIBE_LLM_API_KEY ?? "";
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 60_000;
     this.transport = options.transport ?? this.defaultHttpTransport.bind(this);
   }
 
@@ -99,6 +102,13 @@ export class DeterministicLLMClient {
     return fenceMatch ? fenceMatch[1].trim() : trimmed;
   }
 
+  /**
+   * false — клиент работает в локальном демо-режиме (VIBE_LLM_API_KEY не задан)
+   */
+  public hasApiKey(): boolean {
+    return this.apiKey.length > 0;
+  }
+
   public getCacheSize(): number {
     return this.responseCache.size;
   }
@@ -130,6 +140,8 @@ export class DeterministicLLMClient {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(payload),
+      // Без таймаута зависший endpoint навсегда блокирует конвейер
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!response.ok) {

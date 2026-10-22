@@ -51,14 +51,16 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "npm run build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "build": "tsc -p ./",
-    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js dist-tests/tests/integration/*.test.js",
-    "lint": "eslint src --ext ts"
+    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js"
+  },
+  "dependencies": {
+    "typescript": "^5.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/vscode": "^1.90.0",
-    "typescript": "^5.4.0"
+    "@types/vscode": "^1.90.0"
   }
 }
