@@ -44,7 +44,8 @@ function makeProvider(values: Record<string, string | undefined>, sampling: bool
     const keyEnv = values["api-key-env"] ?? "OPENAI_API_KEY";
     const apiKey = process.env[keyEnv] ?? "";
     if (!apiKey) {
-      throw new Error(`Environment variable ${keyEnv} is empty`);
+      // The variable name comes from the command line; keep it out of logs
+      throw new Error("The API key environment variable (--api-key-env, default OPENAI_API_KEY) is empty");
     }
     return openAiCompatibleProvider(model, {
       baseUrl: values["base-url"] ?? "https://api.openai.com/v1",
@@ -172,7 +173,8 @@ async function main(): Promise<void> {
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error(err instanceof Error ? err.message : err);
+    // Provider HTTP errors can echo key fragments
+    console.error(redactSecrets(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
 }
