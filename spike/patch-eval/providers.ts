@@ -1,5 +1,6 @@
 // LLM transports for the patch-format spike. Each provider gets one system and one
 // user message and returns raw text plus token usage; grading happens elsewhere.
+import Anthropic from "@anthropic-ai/sdk";
 
 export interface ChatRequest {
   system: string;
@@ -107,6 +108,70 @@ export function openAiCompatibleProvider(model: string, options: OpenAiCompatibl
       text: data.choices?.[0]?.message?.content ?? "",
       inputTokens: data.usage?.prompt_tokens ?? 0,
       outputTokens: data.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - started,
+    };
+  };
+}
+
+/** Same shape that validateSchema() accepts; structured outputs enforce it server-side */
+const PATCH_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    intentSummary: { type: "string" },
+    patches: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          targetFile: { type: "string" },
+          searchBlock: { type: "string" },
+          replaceBlock: { type: "string" },
+          explanation: { type: "string" },
+        },
+        required: ["targetFile", "searchBlock", "replaceBlock", "explanation"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["intentSummary", "patches"],
+  additionalProperties: false,
+};
+
+export interface AnthropicOptions {
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
+  timeoutMs: number;
+}
+
+/**
+ * Claude Messages API via the official SDK. Server-side refusal fallbacks are left off
+ * on purpose: a fallback would answer with a different model and blur the measurement.
+ */
+export function anthropicProvider(model: string, options: AnthropicOptions): Provider {
+  // Reads ANTHROPIC_API_KEY (or another configured credential) from the environment
+  const client = new Anthropic({ timeout: options.timeoutMs, maxRetries: 2 });
+  return async ({ system, user, json }) => {
+    const started = Date.now();
+    const response = await client.messages.create({
+      model,
+      max_tokens: 16000,
+      system,
+      messages: [{ role: "user", content: user }],
+      output_config: {
+        effort: options.effort,
+        ...(json ? { format: { type: "json_schema" as const, schema: PATCH_RESPONSE_SCHEMA } } : {}),
+      },
+    });
+    if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") {
+      throw new Error(`Claude stop_reason=${response.stop_reason}`);
+    }
+    const text = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+    return {
+      text,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
       latencyMs: Date.now() - started,
     };
   };

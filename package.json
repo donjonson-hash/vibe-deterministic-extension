@@ -61,6 +61,7 @@
     "typescript": "^5.4.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "0.132.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0"
   }

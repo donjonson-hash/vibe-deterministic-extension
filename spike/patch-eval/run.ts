@@ -15,7 +15,7 @@ import {
   evaluateSearchReplace,
   evaluateWholeFile,
 } from "./grade";
-import { Provider, ollamaProvider, openAiCompatibleProvider } from "./providers";
+import { Provider, anthropicProvider, ollamaProvider, openAiCompatibleProvider } from "./providers";
 
 export const WHOLE_FILE_SYSTEM_PROMPT = `You edit a single source file for a vibe-coding tool.
 CRITICAL RULES:
@@ -57,6 +57,13 @@ function makeProvider(values: Record<string, string | undefined>): Provider {
       timeoutMs,
     });
   }
+  if (values.provider === "anthropic") {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error("Environment variable ANTHROPIC_API_KEY is empty");
+    }
+    const effort = (values.effort ?? "medium") as "low" | "medium" | "high" | "xhigh" | "max";
+    return anthropicProvider(model, { effort, timeoutMs });
+  }
   throw new Error(`Unknown --provider ${values.provider}`);
 }
 
@@ -73,18 +80,21 @@ async function main(): Promise<void> {
       "num-ctx": { type: "string" },
       "timeout-ms": { type: "string" },
       "api-key-env": { type: "string" },
+      effort: { type: "string" },
+      repeat: { type: "string", default: "1" },
       "price-in": { type: "string", default: "0" },
       "price-out": { type: "string", default: "0" },
     },
   });
   if (!values.provider || !values.model || (values.format !== "sr" && values.format !== "wf")) {
-    throw new Error("Required: --provider ollama|openai-compat --model <id> --format sr|wf");
+    throw new Error("Required: --provider ollama|openai-compat|anthropic --model <id> --format sr|wf");
   }
   const format = values.format as Format;
   const provider = makeProvider(values);
   const retries = Number(values.retries);
   const priceIn = Number(values["price-in"]);
   const priceOut = Number(values["price-out"]);
+  const repeat = Number(values.repeat);
 
   const allTasks = JSON.parse(fs.readFileSync(path.join(SPIKE_DIR, "tasks.json"), "utf8")) as EvalTask[];
   const wanted = values.tasks ? new Set(values.tasks.split(",")) : null;
@@ -99,7 +109,7 @@ async function main(): Promise<void> {
   const systemPrompt = format === "sr" ? DETERMINISTIC_SYSTEM_PROMPT : WHOLE_FILE_SYSTEM_PROMPT;
   const contextManager = new ContextManager();
 
-  for (const task of tasks) {
+  for (let rep = 1; rep <= repeat; rep++) for (const task of tasks) {
     const source = fs.readFileSync(path.join(SPIKE_DIR, "fixtures", task.file), "utf8");
     const context = contextManager.extractFileContext(task.file, source);
     const attempts: Array<Omit<AttemptOutcome, "patchedCode"> & { inputTokens: number; outputTokens: number; latencyMs: number }> = [];
@@ -116,7 +126,7 @@ async function main(): Promise<void> {
       try {
         const result = await provider({ system: systemPrompt, user, json: format === "sr" });
         usage = { inputTokens: result.inputTokens, outputTokens: result.outputTokens, latencyMs: result.latencyMs };
-        fs.writeFileSync(path.join(rawDir, `${task.id}-${attempt}.txt`), result.text);
+        fs.writeFileSync(path.join(rawDir, `${task.id}-r${rep}-${attempt}.txt`), result.text);
         outcome = format === "sr"
           ? evaluateSearchReplace(result.text, source, task.file)
           : evaluateWholeFile(result.text, source, task.file);
@@ -137,6 +147,7 @@ async function main(): Promise<void> {
     const outputTokens = attempts.reduce((s, a) => s + a.outputTokens, 0);
     const record = {
       task: task.id,
+      rep,
       file: task.file,
       provider: values.provider,
       model: values.model,
@@ -156,7 +167,7 @@ async function main(): Promise<void> {
     };
     fs.appendFileSync(outFile, JSON.stringify(record) + "\n");
     const mark = record.finalStage === "ok" ? (record.intentPassed ? "PASS" : "OK-but-intent-missed") : `FAIL@${record.finalStage}`;
-    console.log(`${task.id} ${mark} attempts=${record.attemptsUsed} lines=${record.changedLines ?? "-"} collateral=${collateral.length} ${(record.latencyMs / 1000).toFixed(1)}s`);
+    console.log(`${task.id} r${rep} ${mark} attempts=${record.attemptsUsed} lines=${record.changedLines ?? "-"} collateral=${collateral.length} ${(record.latencyMs / 1000).toFixed(1)}s`);
   }
   console.log(`Results: ${outFile}`);
 }
