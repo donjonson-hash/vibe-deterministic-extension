@@ -7,6 +7,7 @@
 контролировать каждое изменение. Точный сегмент и число пользователей: _уточнить_.
 **Стадия:** прототип. Сейчас это VS Code-расширение v0.1.0 (2 дня разработки, один
 автор, нигде не опубликовано). Целевая платформа — Chrome Web Store.
+**Каналы:** Chrome Web Store (основной); затем ChatGPT и Claude ([ADR-0002](decisions/0002-chat-platform-channels.md), Proposed).
 **Цель сейчас:** Chrome MV3 MVP в концепции семейства
 [deterministic-extensions](https://github.com/donjonson-hash/deterministic-extensions),
 готовый к beta-публикации в Chrome Web Store (сначала Unlisted, как у Code Compare Local).
