@@ -7,6 +7,7 @@ import { AstValidator } from "./pipeline/astValidator";
 import { LinterRunner } from "./pipeline/linterRunner";
 import { runWithAutoFix } from "./pipeline/autoFixLoop";
 import { TimeMachine } from "./ui/timeMachine";
+import { SemanticDiffEngine } from "./ui/semanticDiff";
 
 export function activate(context: vscode.ExtensionContext) {
   const stateMachine = new VibeStateMachine();
@@ -15,6 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
   const linterRunner = new LinterRunner();
   const sandboxRunner = new SandboxRunner();
   const timeMachine = new TimeMachine();
+  const semanticDiff = new SemanticDiffEngine();
 
   const executeDisposable = vscode.commands.registerCommand("vibe.executeIntent", async () => {
     const editor = vscode.window.activeTextEditor;
@@ -50,19 +52,16 @@ export function activate(context: vscode.ExtensionContext) {
           try {
             const parsed = validateSchema(rawJson);
             for (const patch of parsed.patches) {
-              // 1. Проверка синтаксиса AST
               const astCheck = astValidator.applyAndValidatePatch(currentCode, patch);
               if (!astCheck.valid || !astCheck.patchedCode) {
                 return { valid: false, error: astCheck.errors.join("; ") };
               }
 
-              // 2. Проверка правил линтера и безопасности
               const lintCheck = linterRunner.lintCode(astCheck.patchedCode, patch.targetFile);
               if (!lintCheck.passed) {
                 return { valid: false, error: linterRunner.formatViolations(lintCheck) };
               }
 
-              // 3. Запуск в изолированной песочнице
               const sandboxCheck = sandboxRunner.executeIsolated(astCheck.patchedCode);
               if (!sandboxCheck.success) {
                 return { valid: false, error: `SandboxError: ${sandboxCheck.error}` };
@@ -82,8 +81,11 @@ export function activate(context: vscode.ExtensionContext) {
         parsedPatch.patches
       );
 
+      const updatedCode = tx.updatedFiles.get(currentFile) ?? currentCode;
+      const diffReport = semanticDiff.compareCode(currentCode, updatedCode, currentFile);
+
       vscode.window.showInformationMessage(
-        `Патч прошел AST + Linter + Sandbox! Снапшот: ${tx.snapshot.id}`
+        `${diffReport.formattedSummary} (Снапшот: ${tx.snapshot.id})`
       );
     } catch (error: any) {
       vscode.window.showErrorMessage(`Отказ конвейера безопасности: ${error.message}`);
