@@ -54,7 +54,8 @@
     "vscode:prepublish": "npm run build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "build": "tsc -p ./",
-    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js",
+    "spike:build": "tsc -p tsconfig.spike.json"
   },
   "dependencies": {
     "typescript": "^5.4.0"
