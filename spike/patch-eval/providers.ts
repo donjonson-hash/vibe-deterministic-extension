@@ -23,6 +23,8 @@ export type Provider = (request: ChatRequest) => Promise<ChatResult>;
 export interface OllamaOptions {
   baseUrl: string;
   numCtx: number;
+  /** Output cap: small models can loop forever in JSON mode (spike T11) */
+  numPredict: number;
   timeoutMs: number;
 }
 
@@ -50,7 +52,7 @@ export function ollamaProvider(model: string, options: OllamaOptions): Provider 
         model,
         stream: false,
         ...(json ? { format: "json" } : {}),
-        options: { temperature: 0, seed: 42, num_ctx: options.numCtx },
+        options: { temperature: 0, seed: 42, num_ctx: options.numCtx, num_predict: options.numPredict },
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },

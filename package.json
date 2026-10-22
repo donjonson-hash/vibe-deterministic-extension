@@ -10,7 +10,8 @@
     "url": "https://github.com/donjonson-hash/vibe-deterministic-extension.git"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.90.0",
+    "node": "^22.18.0 || >=24.11.0"
   },
   "categories": [
     "AI",
