@@ -1,5 +1,6 @@
 import { computeDeterministicHash } from "../utils/crypto";
 import { CodePatch } from "../llm/schemaParser";
+import { applySearchReplace, compareOrdinal } from "../utils/patch";
 
 export interface FileStateSnapshot {
   filePath: string;
@@ -37,7 +38,7 @@ export class TimeMachine {
     timestamp = Date.now()
   ): VibeSnapshot {
     const sortedFiles = [...filesInput]
-      .sort((a, b) => a.filePath.localeCompare(b.filePath))
+      .sort((a, b) => compareOrdinal(a.filePath, b.filePath))
       .map((f) => ({
         filePath: f.filePath,
         content: f.content,
@@ -90,15 +91,15 @@ export class TimeMachine {
         if (currentContent === undefined) {
           throw new Error(`TransactionError: Файл ${patch.targetFile} отсутствует в снапшоте`);
         }
-        if (!currentContent.includes(patch.searchBlock)) {
+        const applied = applySearchReplace(currentContent, patch.searchBlock, patch.replaceBlock);
+        if (!applied.ok) {
           throw new Error(
-            `TransactionError: Блок "${patch.searchBlock}" не найден в ${patch.targetFile}`
+            applied.reason === "AMBIGUOUS"
+              ? `TransactionError: Блок "${patch.searchBlock}" неоднозначен в ${patch.targetFile} (${applied.occurrences} вхождений)`
+              : `TransactionError: Блок "${patch.searchBlock}" не найден в ${patch.targetFile}`
           );
         }
-        workingTree.set(
-          patch.targetFile,
-          currentContent.replace(patch.searchBlock, patch.replaceBlock)
-        );
+        workingTree.set(patch.targetFile, applied.code);
       }
 
       return { snapshot, updatedFiles: workingTree };

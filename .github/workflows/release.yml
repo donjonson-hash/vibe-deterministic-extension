@@ -8,7 +8,7 @@ on:
     branches: [ "main" ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify-and-build:
@@ -44,9 +44,9 @@ jobs:
             exit 1
           fi
 
-      - name: Package Extension Archive (on tag push)
+      - name: Package VSIX (on tag push)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: zip -r vibe-deterministic-extension.zip package.json dist/ assets/ README.md
+        run: npx --yes @vscode/vsce@3.2.1 package --skip-license --out vibe-deterministic-extension.vsix
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -54,3 +54,10 @@ jobs:
           name: extension-build-dist
           path: dist/
           retention-days: 7
+
+      - name: Upload VSIX Artifact (on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibe-deterministic-extension-vsix
+          path: vibe-deterministic-extension.vsix

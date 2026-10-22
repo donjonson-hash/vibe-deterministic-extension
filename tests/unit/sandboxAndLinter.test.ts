@@ -43,7 +43,7 @@ describe("LinterRunner & SandboxRunner (Security & Isolation)", () => {
 
     assert.equal(res.success, true);
     assert.deepEqual(res.logs, ["adding 2 3"]);
-    assert.equal(typeof res.exports.add, "function");
+    assert.equal(res.exportTypes.add, "function");
   });
 
   test("SandboxRunner должен прерывать бесконечный цикл по таймауту", () => {

@@ -9,7 +9,7 @@ describe("VoiceInputNormalizer, CommandCenter & DeterministicLogger", () => {
     const voice = new VoiceInputNormalizer();
 
     const res1 = voice.normalizeTranscript("Эээ ну короче пожалуйста добавь кеширование в auth.ts!");
-    assert.equal(res1.normalizedText, "добавь кеширование в auth ts");
+    assert.equal(res1.normalizedText, "добавь кеширование в auth.ts");
     assert.equal(res1.isRollbackCommand, false);
 
     const res2 = voice.normalizeTranscript("Слушай, ну откати назад пожалуйста");

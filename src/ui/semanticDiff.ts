@@ -1,5 +1,6 @@
 import * as ts from "typescript";
 import { computeDeterministicHash } from "../utils/crypto";
+import { compareOrdinal } from "../utils/patch";
 
 export type SemanticEntityKind =
   | "import"
@@ -7,7 +8,8 @@ export type SemanticEntityKind =
   | "class"
   | "interface"
   | "type"
-  | "variable";
+  | "variable"
+  | "statement";
 
 export type ChangeType = "ADDED" | "MODIFIED" | "REMOVED";
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -83,6 +85,10 @@ export class SemanticDiffEngine {
       });
     };
 
+    // Прочий верхнеуровневый код (вызовы, export default, export { ... }) — одной сущностью,
+    // чтобы изменения вроде `app.listen(80)` -> `app.listen(8080)` не считались "форматированием"
+    const otherStatements: ts.Statement[] = [];
+
     for (const stmt of sourceFile.statements) {
       if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
         registerEntity("import", stmt.moduleSpecifier.text, false, stmt);
@@ -101,7 +107,24 @@ export class SemanticDiffEngine {
             registerEntity("variable", decl.name.text, isExported, decl);
           }
         }
+      } else if (!ts.isEmptyStatement(stmt)) {
+        otherStatements.push(stmt);
       }
+    }
+
+    if (otherStatements.length > 0) {
+      const canonicalText = otherStatements
+        .map((stmt) => this.printer.printNode(ts.EmitHint.Unspecified, stmt, sourceFile))
+        .join("\n")
+        .replace(/\s+/g, " ")
+        .trim();
+      entities.set("statement:<top-level>", {
+        kind: "statement",
+        name: "<top-level>",
+        isExported: otherStatements.some((stmt) => ts.isExportAssignment(stmt) || ts.isExportDeclaration(stmt)),
+        canonicalText,
+        hash: computeDeterministicHash(canonicalText),
+      });
     }
 
     return entities;
@@ -162,7 +185,7 @@ export class SemanticDiffEngine {
     }
 
     // Детерминированная сортировка по имени для стабильного вывода
-    changes.sort((a, b) => a.name.localeCompare(b.name));
+    changes.sort((a, b) => compareOrdinal(a.name, b.name) || compareOrdinal(a.kind, b.kind));
 
     const riskLevel = this.calculateRiskLevel(changes);
     const formattedSummary =

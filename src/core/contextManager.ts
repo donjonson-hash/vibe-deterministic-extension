@@ -1,5 +1,6 @@
 import * as ts from "typescript";
 import { computeDeterministicHash } from "../utils/crypto";
+import { compareOrdinal } from "../utils/patch";
 
 export interface ExtractedContext {
   fileName: string;
@@ -56,9 +57,10 @@ export class ContextManager {
 
     const canonicalPayload = JSON.stringify({
       fileName,
-      imports: imports.sort(),
-      exportedSymbols: exportedSymbols.sort(),
-      functionsAndClasses: functionsAndClasses.sort(),
+      // Сортируем копии: возвращаемые массивы сохраняют порядок объявлений в файле
+      imports: [...imports].sort(compareOrdinal),
+      exportedSymbols: [...exportedSymbols].sort(compareOrdinal),
+      functionsAndClasses: [...functionsAndClasses].sort(compareOrdinal),
       sourceCode,
     });
 
