@@ -3,14 +3,57 @@
   "displayName": "Vibe Deterministic Coder",
   "description": "Deterministic guardrails & flow-state extension for vibe coders",
   "version": "0.1.0",
+  "publisher": "donjonson-hash",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/donjonson-hash/vibe-deterministic-extension.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onCommand:vibe.executeIntent",
+    "onCommand:vibe.rollbackLast"
+  ],
   "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vibe.executeIntent",
+        "title": "Execute Vibe Intent (Deterministic Pipeline)",
+        "category": "Vibe"
+      },
+      {
+        "command": "vibe.rollbackLast",
+        "title": "TimeMachine: Rollback Last Vibe",
+        "category": "Vibe"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "vibe.executeIntent",
+        "key": "ctrl+alt+v",
+        "mac": "cmd+alt+v",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "vibe.rollbackLast",
+        "key": "ctrl+alt+z",
+        "mac": "cmd+alt+z",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p ./",
-    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js dist-tests/tests/integration/*.test.js",
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
