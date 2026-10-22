@@ -8,7 +8,7 @@ import { detectEol, fromLf, toLf } from "../core/eol";
 import { DiffLimitError, LineDiff, diffLines } from "../core/lineDiff";
 import { SchemaValidationError, validateSchema } from "../llm/schemaParser";
 import { applySearchReplace, isSameFile } from "../utils/patch";
-import { extractFencedBlocks, stripJsonFence } from "./fences";
+import { extractFencedBlocks, extractJsonAnswer } from "./fences";
 import { formatViolations, lintCode, lintPatch } from "./lint";
 import { isSupportedFile } from "./parse";
 import { SemanticDiffReport, attentionReasons, compareCode } from "./semanticDiff";
@@ -60,7 +60,7 @@ export function checkProposal(input: ProposalInput): ProposalCheck {
   if (format === "sr") {
     let parsed;
     try {
-      parsed = validateSchema(stripJsonFence(answer));
+      parsed = validateSchema(extractJsonAnswer(answer));
     } catch (err) {
       return reject("format", err instanceof SchemaValidationError ? err.message : `SchemaValidationError: ${String(err)}`);
     }

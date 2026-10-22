@@ -22,9 +22,16 @@ export function extractFencedBlocks(raw: string): string[] {
   return blocks;
 }
 
-/** A JSON answer wrapped in a single ```json fence is unwrapped; anything else is returned trimmed */
-export function stripJsonFence(text: string): string {
+/**
+ * The JSON part of an answer: bare JSON, JSON in one fence, or (as pasted from a chat) the
+ * single fenced block that holds a JSON object amid prose. Otherwise the trimmed text is
+ * returned and fails JSON parsing with a clear error.
+ */
+export function extractJsonAnswer(text: string): string {
   const trimmed = text.trim();
-  const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  return fence ? fence[1].trim() : trimmed;
+  if (trimmed.startsWith("{")) return trimmed;
+  const objects = extractFencedBlocks(trimmed)
+    .map((block) => block.trim())
+    .filter((block) => block.startsWith("{"));
+  return objects.length === 1 ? objects[0] : trimmed;
 }

@@ -1,6 +1,6 @@
 // Semantic diff of top-level entities. An entity's canonical text is its token sequence
 // without comments, so formatting and comment edits are not reported as changes.
-import type { Node, Statement } from "@babel/types";
+import type { ImportDeclaration, Node, Statement } from "@babel/types";
 import { compareOrdinal } from "../utils/patch";
 import { parseSource } from "./parse";
 
@@ -14,6 +14,8 @@ export interface SemanticChange {
   changeType: ChangeType;
   isExported: boolean;
   summary: string;
+  /** For a modified import: bindings it no longer provides */
+  removedSpecifiers?: string[];
 }
 
 export interface SemanticDiffReport {
@@ -28,6 +30,17 @@ interface Entity {
   name: string;
   isExported: boolean;
   canonicalText: string;
+  /** Import bindings, e.g. "readFile as readFile", "* as path", "default as React" */
+  specifiers?: string[];
+}
+
+function importSpecifiers(declaration: ImportDeclaration): string[] {
+  return declaration.specifiers.map((specifier) => {
+    if (specifier.type === "ImportDefaultSpecifier") return `default as ${specifier.local.name}`;
+    if (specifier.type === "ImportNamespaceSpecifier") return `* as ${specifier.local.name}`;
+    const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value;
+    return `${imported} as ${specifier.local.name}`;
+  });
 }
 
 interface Token {
@@ -55,7 +68,7 @@ function lowerBound(tokens: Token[], position: number): number {
 }
 
 function extractEntities(code: string, fileName: string): Map<string, Entity> {
-  const ast = parseSource(code, fileName, true);
+  const ast = parseSource(code, fileName);
   const tokens = ((ast.tokens ?? []) as Token[]).filter((token) => !isComment(token));
   const canonical = (node: Node): string => {
     const parts: string[] = [];
@@ -66,8 +79,23 @@ function extractEntities(code: string, fileName: string): Map<string, Entity> {
   };
 
   const entities = new Map<string, Entity>();
-  const register = (kind: SemanticEntityKind, name: string, isExported: boolean, node: Node) => {
-    entities.set(`${kind}:${name}`, { kind, name, isExported, canonicalText: canonical(node) });
+  // Overloads, merged interfaces, repeated `var` and several imports from one module share a
+  // key: they are combined, so a change to any of them is a change to the entity
+  const register = (kind: SemanticEntityKind, name: string, isExported: boolean, node: Node, prefix = "", specifiers?: string[]) => {
+    const key = `${kind}:${name}`;
+    const canonicalText = prefix + canonical(node);
+    const previous = entities.get(key);
+    entities.set(
+      key,
+      previous
+        ? {
+            ...previous,
+            isExported: previous.isExported || isExported,
+            canonicalText: `${previous.canonicalText} ; ${canonicalText}`,
+            specifiers: specifiers && [...(previous.specifiers ?? []), ...specifiers],
+          }
+        : { kind, name, isExported, canonicalText, specifiers }
+    );
   };
   // Other top-level code (calls, `export default expr`, `export { a }`) is one entity, so a
   // change like `app.listen(80)` -> `app.listen(8080)` is not mistaken for formatting
@@ -91,7 +119,7 @@ function extractEntities(code: string, fileName: string): Map<string, Entity> {
 
     switch (declaration.type) {
       case "ImportDeclaration":
-        register("import", declaration.source.value, false, statement);
+        register("import", declaration.source.value, false, statement, "", importSpecifiers(declaration));
         continue;
       case "FunctionDeclaration":
       case "TSDeclareFunction":
@@ -116,7 +144,8 @@ function extractEntities(code: string, fileName: string): Map<string, Entity> {
         let registered = false;
         for (const declarator of declaration.declarations) {
           if (declarator.id.type === "Identifier") {
-            register("variable", declarator.id.name, isExported, declarator);
+            // The declarator alone omits `const`/`let`/`var` and `declare`; both are semantic
+            register("variable", declarator.id.name, isExported, declarator, `${declaration.declare ? "declare " : ""}${declaration.kind} `);
             registered = true;
           }
         }
@@ -157,12 +186,15 @@ export function compareCode(beforeCode: string, afterCode: string, fileName: str
         summary: `Удален ${entity.isExported ? "экспортируемый " : ""}${entity.kind} "${entity.name}"`,
       });
     } else if (entity.canonicalText !== next.canonicalText || entity.isExported !== next.isExported) {
+      const kept = new Set(next.specifiers ?? []);
+      const removedSpecifiers = entity.specifiers?.filter((specifier) => !kept.has(specifier));
       changes.push({
         kind: next.kind,
         name: next.name,
         changeType: "MODIFIED",
         isExported: entity.isExported || next.isExported,
         summary: `Изменена логика ${next.kind} "${next.name}"`,
+        ...(removedSpecifiers ? { removedSpecifiers } : {}),
       });
     }
   }
@@ -195,12 +227,16 @@ function calculateRiskLevel(changes: SemanticChange[]): RiskLevel {
 
 /**
  * Changes that need an explicit confirmation before a proposal can be accepted: anything
- * removed, and existing imports rewritten. Without the user's intent we cannot know what was
- * requested, so these are flagged rather than blocked (spike 2026-10-22: a whole-file answer
- * silently rewrote an unrelated import).
+ * removed, and imports that lose bindings. Adding a binding to an import is routine and is not
+ * flagged. Without the user's intent we cannot know what was requested, so these are flagged
+ * rather than blocked (spike 2026-10-22: a whole-file answer silently rewrote an unrelated import).
  */
 export function attentionReasons(report: SemanticDiffReport): string[] {
-  return report.changes
-    .filter((c) => c.changeType === "REMOVED" || (c.kind === "import" && c.changeType === "MODIFIED"))
-    .map((c) => c.summary);
+  return report.changes.flatMap((c) => {
+    if (c.changeType === "REMOVED") return [c.summary];
+    if (c.kind === "import" && c.removedSpecifiers && c.removedSpecifiers.length > 0) {
+      return [`Из import "${c.name}" удалено: ${c.removedSpecifiers.join(", ")}`];
+    }
+    return [];
+  });
 }

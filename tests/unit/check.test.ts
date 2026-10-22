@@ -3,9 +3,9 @@ import * as assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { extractFencedBlocks } from "../../src/check/fences";
+import { extractFencedBlocks, extractJsonAnswer } from "../../src/check/fences";
 import { lintCode, lintPatch } from "../../src/check/lint";
-import { UnsupportedFileError, parserOptions } from "../../src/check/parse";
+import { UnsupportedFileError, isSupportedFile, parserOptions } from "../../src/check/parse";
 import { checkProposal } from "../../src/check/proposal";
 import { attentionReasons, compareCode } from "../../src/check/semanticDiff";
 import { checkSyntax } from "../../src/check/syntax";
@@ -28,6 +28,12 @@ describe("syntax (Babel)", () => {
 
   test("rejects unsupported file types instead of guessing a parser", () => {
     assert.throws(() => parserOptions("styles.css"), UnsupportedFileError);
+    // Review finding: extensions must not resolve through Object.prototype
+    for (const name of ["notes.constructor", "a.tostring", "b.__proto__", "c.hasownproperty"]) {
+      assert.equal(isSupportedFile(name), false, name);
+      assert.throws(() => parserOptions(name), UnsupportedFileError, name);
+    }
+    assert.equal(isSupportedFile("App.TSX"), true);
   });
 });
 
@@ -48,6 +54,26 @@ describe("lint (Babel)", () => {
       "no-new-func@6",
       "no-debugger@7",
     ]);
+  });
+
+  test("indirect eval forms and string timers are caught; eval as a property name is not", () => {
+    const code = `(0, eval)("1");\nconst e = eval;\nobj[eval];\nsetTimeout("run()", 10);\nsetInterval(\`tick()\`, 5);\n`;
+    assert.deepEqual(lintCode(code, "i.ts").violations.map((v) => `${v.ruleId}@${v.line}`), [
+      "no-eval@1",
+      "no-eval@2",
+      "no-eval@3",
+      "no-implied-eval@4",
+      "no-implied-eval@5",
+    ]);
+    const harmless = `const o = { eval: 1 };\nclass K { eval() { return o.eval; } }\nsetTimeout(() => 1, 10);\nconst t: Function = () => 1;\n`;
+    assert.deepEqual(lintCode(harmless, "h.ts").violations, []);
+  });
+
+  test("lintPatch matches Babel line numbering when a file contains U+2028", () => {
+    // Babel counts U+2028 as a line terminator; the baseline must use the same lines
+    const original = 'const s = "a\u2028b";\nexport function legacy(x: any) { return x; }\n';
+    const patched = original + "export const ok = 1;\n";
+    assert.equal(lintPatch(original, patched, "u.ts").passed, true);
   });
 
   test("lintPatch blocks only violations the original did not have", () => {
@@ -92,12 +118,28 @@ describe("semantic diff (Babel tokens)", () => {
     assert.equal(exported.changes[0].isExported, true);
   });
 
+  test("overloads, merged declarations and declaration kinds are compared", () => {
+    const overloads = `export function f(a: string): void;\nexport function f(a: number): void;\nexport function f(a: unknown): void {}\n`;
+    const changed = overloads.replace("f(a: string): void;", "f(a: boolean): void;");
+    assert.deepEqual(compareCode(overloads, changed, "o.ts").changes.map((c) => `${c.changeType} ${c.name}`), ["MODIFIED f"]);
+    const merged = `interface A { x: number }\ninterface A { y: string }\n`;
+    assert.equal(compareCode(merged, merged.replace("y: string", "y: number"), "m.ts").changes.length, 1);
+    const kind = compareCode("export const CONFIG = { a: 1 };\n", "export let CONFIG = { a: 1 };\n", "k.ts");
+    assert.deepEqual(kind.changes.map((c) => `${c.changeType} ${c.kind} ${c.name}`), ["MODIFIED variable CONFIG"]);
+  });
+
   test("a rewritten import needs attention (spike T19: import * as ts → import ts = require)", () => {
     const report = compareCode(`import * as ts from "typescript";\nexport const a = 1;\n`, `import ts = require("typescript");\nexport const a = 1;\n`, "x.ts");
     assert.deepEqual(report.changes.map((c) => `${c.changeType} ${c.kind} ${c.name}`), ["ADDED statement <top-level>", "REMOVED import typescript"]);
     assert.equal(attentionReasons(report).length, 1);
-    const modifiedImport = compareCode(`import { a } from "m";\n`, `import { a, b } from "m";\n`, "y.ts");
-    assert.deepEqual(attentionReasons(modifiedImport), ['Изменена логика import "m"']);
+    // Adding a binding is routine; losing one needs attention
+    const added = compareCode(`import { a } from "m";\n`, `import { a, b } from "m";\n`, "y.ts");
+    assert.equal(added.changes[0].changeType, "MODIFIED");
+    assert.deepEqual(attentionReasons(added), []);
+    const lost = compareCode(`import { a, b } from "m";\n`, `import { a } from "m";\n`, "y.ts");
+    assert.deepEqual(attentionReasons(lost), ['Из import "m" удалено: b as b']);
+    const renamed = compareCode(`import * as fs from "fs";\n`, `import fs from "fs";\n`, "y.ts");
+    assert.deepEqual(attentionReasons(renamed), ['Из import "fs" удалено: * as fs']);
   });
 });
 
@@ -154,6 +196,23 @@ describe("checkProposal", () => {
     assert.equal(check.stage, "ok");
     assert.equal(check.semantic, undefined);
     assert.equal(check.attention.length, 1);
+  });
+
+  test("CR-only and no-line-break files keep their style", () => {
+    const cr = source.replace(/\n/g, "\r");
+    const viaCr = checkProposal({ answer: sr("return false;", "return true;"), format: "sr", source: cr, fileName: "hello.ts" });
+    assert.equal(viaCr.result, cr.replace("return false;", "return true;"));
+    const oneLine = "export const a = 1;";
+    const grown = checkProposal({ answer: sr("export const a = 1;", "export const a = 1;\nexport const b = 2;", "one.ts"), format: "sr", source: oneLine, fileName: "one.ts" });
+    assert.equal(grown.result, "export const a = 1;\nexport const b = 2;");
+  });
+
+  test("a search/replace answer pasted with chat prose around the JSON block is accepted", () => {
+    const answer = "Here is the patch:\n\n```json\n" + sr("return false;", "return true;") + "\n```\n\nLet me know if it works.";
+    assert.equal(checkProposal({ answer, format: "sr", source, fileName: "hello.ts" }).stage, "ok");
+    // Two JSON blocks are ambiguous and are not guessed
+    const two = "```json\n{}\n```\n```json\n{}\n```";
+    assert.equal(extractJsonAnswer(two), two);
   });
 
   test("unsupported files are rejected up front", () => {
