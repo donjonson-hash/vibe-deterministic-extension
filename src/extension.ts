@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { VibeStateMachine } from "./core/stateMachine";
 import { ContextManager } from "./core/contextManager";
 import { SandboxRunner } from "./core/sandboxRunner";
+import { DeterministicLLMClient } from "./llm/client";
 import { validateSchema } from "./llm/schemaParser";
 import { AstValidator } from "./pipeline/astValidator";
 import { LinterRunner } from "./pipeline/linterRunner";
@@ -17,6 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
   const sandboxRunner = new SandboxRunner();
   const timeMachine = new TimeMachine();
   const semanticDiff = new SemanticDiffEngine();
+  const llmClient = new DeterministicLLMClient();
 
   const executeDisposable = vscode.commands.registerCommand("vibe.executeIntent", async () => {
     const editor = vscode.window.activeTextEditor;
@@ -36,17 +38,13 @@ export function activate(context: vscode.ExtensionContext) {
       const verifiedPatch = await runWithAutoFix(
         stateMachine,
         async (errorFeedback) => {
-          return JSON.stringify({
-            intentSummary: `${intent} [hash: ${fileContext.contextHash.slice(0, 8)}]`,
-            patches: [
-              {
-                targetFile: currentFile,
-                searchBlock: "// old",
-                replaceBlock: "const cached: boolean = true; return cached;",
-                explanation: errorFeedback ? `Fixed error: ${errorFeedback}` : "Initial verified patch",
-              },
-            ],
+          const result = await llmClient.generatePatch({
+            intent,
+            context: fileContext,
+            sourceCode: currentCode,
+            errorFeedback,
           });
+          return result.rawJson;
         },
         async (rawJson) => {
           try {
