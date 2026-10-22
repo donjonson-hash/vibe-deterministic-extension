@@ -14,6 +14,8 @@ export interface ChatResult {
   inputTokens: number;
   outputTokens: number;
   latencyMs: number;
+  /** Set when the provider stopped early (refusal, output limit); usage is still billed */
+  incomplete?: string;
 }
 
 export type Provider = (request: ChatRequest) => Promise<ChatResult>;
@@ -24,12 +26,22 @@ export interface OllamaOptions {
   timeoutMs: number;
 }
 
+/** Room left for the answer when checking that a prompt fits num_ctx */
+const OLLAMA_OUTPUT_RESERVE_TOKENS = 4096;
+
 /**
  * Native Ollama /api/chat. The OpenAI-compatible /v1 endpoint cannot set num_ctx,
- * and Ollama silently truncates prompts longer than the model's default context.
+ * and Ollama silently truncates prompts longer than the context.
+ * prompt_eval_count excludes a KV-cached prefix, so it can't detect truncation (and
+ * undercounts input tokens on retries); a conservative estimate of ~3 characters per
+ * token is checked before sending instead.
  */
 export function ollamaProvider(model: string, options: OllamaOptions): Provider {
   return async ({ system, user, json }) => {
+    const estimatedTokens = Math.ceil((system.length + user.length) / 3);
+    if (estimatedTokens > options.numCtx - OLLAMA_OUTPUT_RESERVE_TOKENS) {
+      throw new Error(`Prompt (~${estimatedTokens} tokens) does not fit num_ctx ${options.numCtx} with output reserve`);
+    }
     const started = Date.now();
     const response = await fetch(`${options.baseUrl}/api/chat`, {
       method: "POST",
@@ -53,16 +65,14 @@ export function ollamaProvider(model: string, options: OllamaOptions): Provider 
       message?: { content?: string };
       prompt_eval_count?: number;
       eval_count?: number;
+      done_reason?: string;
     };
-    const inputTokens = data.prompt_eval_count ?? 0;
-    if (inputTokens >= options.numCtx) {
-      throw new Error(`Prompt reached num_ctx (${inputTokens} >= ${options.numCtx}); input was probably truncated`);
-    }
     return {
       text: data.message?.content ?? "",
-      inputTokens,
+      inputTokens: data.prompt_eval_count ?? 0,
       outputTokens: data.eval_count ?? 0,
       latencyMs: Date.now() - started,
+      ...(data.done_reason === "length" ? { incomplete: "done_reason=length" } : {}),
     };
   };
 }
@@ -102,14 +112,18 @@ export function openAiCompatibleProvider(model: string, options: OpenAiCompatibl
       throw new Error(`HTTP ${response.status}: ${await response.text()}`);
     }
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
+    const finishReason = data.choices?.[0]?.finish_reason;
     return {
       text: data.choices?.[0]?.message?.content ?? "",
       inputTokens: data.usage?.prompt_tokens ?? 0,
       outputTokens: data.usage?.completion_tokens ?? 0,
       latencyMs: Date.now() - started,
+      ...(finishReason === "length" || finishReason === "content_filter"
+        ? { incomplete: `finish_reason=${finishReason}` }
+        : {}),
     };
   };
 }
@@ -162,9 +176,6 @@ export function anthropicProvider(model: string, options: AnthropicOptions): Pro
         ...(json ? { format: { type: "json_schema" as const, schema: PATCH_RESPONSE_SCHEMA } } : {}),
       },
     });
-    if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") {
-      throw new Error(`Claude stop_reason=${response.stop_reason}`);
-    }
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
@@ -174,6 +185,9 @@ export function anthropicProvider(model: string, options: AnthropicOptions): Pro
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
       latencyMs: Date.now() - started,
+      ...(response.stop_reason === "refusal" || response.stop_reason === "max_tokens"
+        ? { incomplete: `stop_reason=${response.stop_reason}` }
+        : {}),
     };
   };
 }

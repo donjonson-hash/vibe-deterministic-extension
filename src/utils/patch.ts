@@ -38,3 +38,13 @@ export function applySearchReplace(
 export function compareOrdinal(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
+
+/**
+ * Указывает ли targetFile из патча LLM на файл relativePath (с точностью до префикса пути)
+ */
+export function isSameFile(targetFile: string, relativePath: string): boolean {
+  const normalize = (p: string) => p.replace(/\\/g, "/").replace(/^\.\//, "");
+  const target = normalize(targetFile);
+  const relative = normalize(relativePath);
+  return target === relative || relative.endsWith(`/${target}`) || target.endsWith(`/${relative}`);
+}

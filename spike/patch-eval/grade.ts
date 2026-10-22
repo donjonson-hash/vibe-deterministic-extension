@@ -4,9 +4,11 @@ import { validateSchema } from "../../src/llm/schemaParser";
 import { AstValidator } from "../../src/pipeline/astValidator";
 import { LinterRunner } from "../../src/pipeline/linterRunner";
 import { SemanticDiffEngine } from "../../src/ui/semanticDiff";
-import { applySearchReplace } from "../../src/utils/patch";
+import { applySearchReplace, isSameFile } from "../../src/utils/patch";
 
-export type Stage = "ok" | "transport" | "format" | "apply" | "syntax" | "lint";
+/** `incomplete`: the provider stopped early (refusal, output limit); like `transport`, not retried */
+export type Stage = "ok" | "transport" | "incomplete" | "format" | "apply" | "syntax" | "lint";
+export type Format = "sr" | "wf";
 
 export interface AttemptOutcome {
   stage: Stage;
@@ -27,6 +29,14 @@ export interface EvalTask {
   checks: IntentCheck[];
   /** Top-level entities the intent is expected to change */
   touch: string[];
+}
+
+export interface GradedResponse {
+  outcome: AttemptOutcome;
+  intentPassed: boolean;
+  failedChecks: string[];
+  collateral: string[];
+  changedLines: number | null;
 }
 
 const astValidator = new AstValidator();
@@ -54,7 +64,10 @@ function verify(source: string, candidate: string, fileName: string): AttemptOut
   return { stage: "ok", patchedCode: candidate };
 }
 
-/** Format A: JSON with search/replace blocks, applied in order like the extension does */
+/**
+ * Format A: JSON with search/replace blocks, applied in order. Like src/extension.ts,
+ * a patch aimed at another file is rejected (TargetFileMismatch).
+ */
 export function evaluateSearchReplace(raw: string, source: string, fileName: string): AttemptOutcome {
   let parsed;
   try {
@@ -68,6 +81,12 @@ export function evaluateSearchReplace(raw: string, source: string, fileName: str
 
   let code = source;
   for (const [index, patch] of parsed.patches.entries()) {
+    if (!isSameFile(patch.targetFile, fileName)) {
+      return {
+        stage: "apply",
+        error: `TargetFileMismatch: patches[${index}] targets "${patch.targetFile}", only "${fileName}" may be changed`,
+      };
+    }
     const applied = applySearchReplace(code, patch.searchBlock, patch.replaceBlock);
     if (!applied.ok) {
       const what =
@@ -84,9 +103,33 @@ export function evaluateSearchReplace(raw: string, source: string, fileName: str
   return verify(source, code, fileName);
 }
 
+/**
+ * Fenced code blocks per CommonMark: a fence is a line of 3+ backticks or tildes, closed by
+ * a line of the same character at least as long. Backticks inside lines are file content.
+ */
+export function extractFencedBlocks(raw: string): string[] {
+  const lines = raw.split("\n");
+  const blocks: string[] = [];
+  let open: { char: string; length: number; start: number } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, "");
+    if (!open) {
+      const opening = line.match(/^ {0,3}(`{3,}|~{3,})([^`]*)$/);
+      if (opening) open = { char: opening[1][0], length: opening[1].length, start: i + 1 };
+      continue;
+    }
+    const closing = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+    if (closing && closing[1][0] === open.char && closing[1].length >= open.length) {
+      blocks.push(lines.slice(open.start, i).join("\n"));
+      open = null;
+    }
+  }
+  return blocks;
+}
+
 /** Format B: the complete updated file inside one fenced code block */
 export function evaluateWholeFile(raw: string, source: string, fileName: string): AttemptOutcome {
-  const blocks = [...raw.matchAll(/```[^\n`]*\n([\s\S]*?)\n?```/g)].map((m) => m[1]);
+  const blocks = extractFencedBlocks(raw);
   if (blocks.length !== 1) {
     return {
       stage: "format",
@@ -94,7 +137,7 @@ export function evaluateWholeFile(raw: string, source: string, fileName: string)
     };
   }
   let candidate = blocks[0];
-  // Keep the original final newline convention; models usually drop it inside fences
+  // Keep the original final newline convention; the fence swallows the last line break
   if (source.endsWith("\n") && !candidate.endsWith("\n")) {
     candidate += "\n";
   }
@@ -139,4 +182,35 @@ export function collateralChanges(task: EvalTask, source: string, code: string):
   return report.changes
     .filter((change) => !task.touch.includes(change.name))
     .map((change) => `${change.changeType} ${change.kind} ${change.name}`);
+}
+
+/** The whole grading pipeline for one raw response; shared by run.ts and regrade.ts */
+export function gradeResponse(task: EvalTask, format: Format, raw: string, source: string): GradedResponse {
+  const outcome =
+    format === "sr" ? evaluateSearchReplace(raw, source, task.file) : evaluateWholeFile(raw, source, task.file);
+  const code = outcome.patchedCode;
+  const failedChecks = code ? checkIntent(task, code) : [];
+  return {
+    outcome,
+    intentPassed: Boolean(code) && failedChecks.length === 0,
+    failedChecks,
+    collateral: code ? collateralChanges(task, source, code) : [],
+    changedLines: code ? changedLineCount(source, code) : null,
+  };
+}
+
+/** Grading for a run that produced no gradable response (transport or incomplete) */
+export function ungraded(outcome: AttemptOutcome): GradedResponse {
+  return { outcome, intentPassed: false, failedChecks: [], collateral: [], changedLines: null };
+}
+
+/**
+ * Error text is stored in committed results: strip anything that looks like a credential
+ * (OpenAI echoes a masked key tail on 401, headers may appear in proxy errors).
+ */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/\b(sk|rk|pk)-[A-Za-z0-9_*.-]{4,}/g, "[redacted-key]")
+    .replace(/\b(Bearer)\s+[^\s"']+/gi, "$1 [redacted]")
+    .replace(/((?:api[_-]?key|x-api-key|authorization)["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, "$1[redacted]");
 }

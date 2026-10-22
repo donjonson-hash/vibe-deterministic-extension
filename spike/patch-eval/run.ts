@@ -6,15 +6,7 @@ import { parseArgs } from "node:util";
 import { ContextManager } from "../../src/core/contextManager";
 import { DETERMINISTIC_SYSTEM_PROMPT, buildUserPrompt } from "../../src/llm/promptTemplates";
 import { computeDeterministicHash } from "../../src/utils/crypto";
-import {
-  AttemptOutcome,
-  EvalTask,
-  changedLineCount,
-  checkIntent,
-  collateralChanges,
-  evaluateSearchReplace,
-  evaluateWholeFile,
-} from "./grade";
+import { AttemptOutcome, EvalTask, Format, GradedResponse, gradeResponse, redactSecrets, ungraded } from "./grade";
 import { Provider, anthropicProvider, ollamaProvider, openAiCompatibleProvider } from "./providers";
 
 export const WHOLE_FILE_SYSTEM_PROMPT = `You edit a single source file for a vibe-coding tool.
@@ -23,9 +15,12 @@ CRITICAL RULES:
 2. Change only what the intent requires. Keep every other line, comment and formatting exactly as it is.
 3. NEVER use 'any', 'eval()', 'new Function()', or 'debugger'.`;
 
-type Format = "sr" | "wf";
-
 const SPIKE_DIR = path.resolve(__dirname, "../../../spike/patch-eval");
+
+/** Raw responses live next to their results file: <dir>/raw/<name>/ (regrade.ts relies on this) */
+export function rawDirFor(outFile: string): string {
+  return path.join(path.dirname(outFile), "raw", path.basename(outFile, ".jsonl"));
+}
 
 function buildWholeFileUser(task: EvalTask, source: string, errorFeedback?: string): string {
   const sections = [`=== VIBE INTENT ===\n${task.intent}`, `=== FILE: ${task.file} ===\n${source}`];
@@ -105,7 +100,9 @@ async function main(): Promise<void> {
 
   const runId = `${values.model.replace(/[^\w.-]+/g, "_")}-${format}`;
   const outFile = values.out ?? path.join(SPIKE_DIR, "results", `${runId}.jsonl`);
-  const rawDir = path.join(SPIKE_DIR, "results", "raw", runId);
+  const rawDir = rawDirFor(outFile);
+  // The results file is truncated, so stale raw responses from an earlier run must go too
+  fs.rmSync(rawDir, { recursive: true, force: true });
   fs.mkdirSync(rawDir, { recursive: true });
   fs.writeFileSync(outFile, "");
 
@@ -116,7 +113,7 @@ async function main(): Promise<void> {
     const source = fs.readFileSync(path.join(SPIKE_DIR, "fixtures", task.file), "utf8");
     const context = contextManager.extractFileContext(task.file, source);
     const attempts: Array<Omit<AttemptOutcome, "patchedCode"> & { inputTokens: number; outputTokens: number; latencyMs: number }> = [];
-    let finalOutcome: AttemptOutcome = { stage: "transport", error: "not attempted" };
+    let graded: GradedResponse = ungraded({ stage: "transport", error: "not attempted" });
     let errorFeedback: string | undefined;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -124,28 +121,25 @@ async function main(): Promise<void> {
         format === "sr"
           ? buildUserPrompt({ intent: task.intent, context, sourceCode: source, errorFeedback })
           : buildWholeFileUser(task, source, errorFeedback);
-      let outcome: AttemptOutcome;
       let usage = { inputTokens: 0, outputTokens: 0, latencyMs: 0 };
       try {
         const result = await provider({ system: systemPrompt, user, json: format === "sr" });
+        // Billed even when the response is incomplete, so usage is recorded first
         usage = { inputTokens: result.inputTokens, outputTokens: result.outputTokens, latencyMs: result.latencyMs };
         fs.writeFileSync(path.join(rawDir, `${task.id}-r${rep}-${attempt}.txt`), result.text);
-        outcome = format === "sr"
-          ? evaluateSearchReplace(result.text, source, task.file)
-          : evaluateWholeFile(result.text, source, task.file);
+        graded = result.incomplete
+          ? ungraded({ stage: "incomplete", error: `Response stopped early: ${result.incomplete}` })
+          : gradeResponse(task, format, result.text, source);
       } catch (err) {
-        outcome = { stage: "transport", error: err instanceof Error ? err.message : String(err) };
+        graded = ungraded({ stage: "transport", error: err instanceof Error ? err.message : String(err) });
       }
-      attempts.push({ stage: outcome.stage, error: outcome.error?.slice(0, 500), ...usage });
-      finalOutcome = outcome;
-      // Transport failures are infrastructure, not something the model can fix
-      if (outcome.stage === "ok" || outcome.stage === "transport") break;
+      const outcome: AttemptOutcome = graded.outcome;
+      attempts.push({ stage: outcome.stage, error: outcome.error && redactSecrets(outcome.error).slice(0, 500), ...usage });
+      // Transport and early stops are not something the model can fix from an error message
+      if (outcome.stage === "ok" || outcome.stage === "transport" || outcome.stage === "incomplete") break;
       errorFeedback = outcome.error;
     }
 
-    const code = finalOutcome.patchedCode;
-    const failedChecks = code ? checkIntent(task, code) : [];
-    const collateral = code ? collateralChanges(task, source, code) : [];
     const inputTokens = attempts.reduce((s, a) => s + a.inputTokens, 0);
     const outputTokens = attempts.reduce((s, a) => s + a.outputTokens, 0);
     const record = {
@@ -157,12 +151,13 @@ async function main(): Promise<void> {
       format,
       promptHash: computeDeterministicHash(systemPrompt).slice(0, 12),
       attempts,
-      finalStage: finalOutcome.stage,
+      finalStage: graded.outcome.stage,
       attemptsUsed: attempts.length,
-      intentPassed: Boolean(code) && failedChecks.length === 0,
-      failedChecks,
-      collateral,
-      changedLines: code ? changedLineCount(source, code) : null,
+      maxAttempts: retries + 1,
+      intentPassed: graded.intentPassed,
+      failedChecks: graded.failedChecks,
+      collateral: graded.collateral,
+      changedLines: graded.changedLines,
       inputTokens,
       outputTokens,
       costUsd: (inputTokens * priceIn + outputTokens * priceOut) / 1_000_000,
@@ -170,12 +165,14 @@ async function main(): Promise<void> {
     };
     fs.appendFileSync(outFile, JSON.stringify(record) + "\n");
     const mark = record.finalStage === "ok" ? (record.intentPassed ? "PASS" : "OK-but-intent-missed") : `FAIL@${record.finalStage}`;
-    console.log(`${task.id} r${rep} ${mark} attempts=${record.attemptsUsed} lines=${record.changedLines ?? "-"} collateral=${collateral.length} ${(record.latencyMs / 1000).toFixed(1)}s`);
+    console.log(`${task.id} r${rep} ${mark} attempts=${record.attemptsUsed} lines=${record.changedLines ?? "-"} collateral=${record.collateral.length} ${(record.latencyMs / 1000).toFixed(1)}s`);
   }
   console.log(`Results: ${outFile}`);
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}
