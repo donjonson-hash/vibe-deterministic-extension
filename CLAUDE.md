@@ -4,17 +4,16 @@ Read first: `docs/PROJECT.md` (product, goal, risks) and `docs/decisions/` (ADRs
 
 ## Status
 
-`main` is a VS Code extension prototype (v0.1.0). The target is a Chrome MV3
-extension in the deterministic-extensions family; the migration is proposed in
-`docs/decisions/0001-chrome-mv3-llm-adapters.md` and NOT yet accepted. Do not
-start porting until the ADR is Accepted. PR #1 (`fix/pipeline-sandbox-hardening`)
-makes the VS Code version work and is unmerged.
+`main` holds the final VS Code prototype (v0.1.0, PR #1 merged, 40/40 tests).
+The product is moving to a Chrome MV3 extension in the deterministic-extensions
+family: `docs/decisions/0001-chrome-mv3-llm-adapters.md` (Accepted). MVP scope
+and stages: `docs/ROADMAP.md`. Do not invest in the VS Code code path; port pure
+modules and their tests. Update this file when the Chrome stack lands.
 
 ## Stack (current `main`)
 
 - TypeScript 5 (strict), CommonJS output to `dist/`, VS Code API `^1.90`.
 - Runtime dependency: `typescript` Compiler API (AST, transpile).
-  On `main` it is wrongly listed in devDependencies; PR #1 fixes this.
 - Tests: built-in `node:test`, compiled via `tsconfig.test.json` to `dist-tests/`.
 - CI: `.github/workflows/release.yml` (Node 20: `npm ci`, typecheck, test, build).
 
@@ -23,11 +22,11 @@ makes the VS Code version work and is unmerged.
 ```bash
 npm ci
 npm run typecheck
-npm test        # on main: 23/24, contextManager sorts arrays in place
+npm test
 npm run build   # -> dist/extension.js
 ```
 
-`npm run lint` is broken on `main`: eslint is not installed.
+There is no linter yet.
 Manual run: open the folder in VS Code and press F5 (Extension Development Host).
 
 ## Layout

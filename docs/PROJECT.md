@@ -39,19 +39,19 @@
 кеш в памяти) → `AstValidator` → `LinterRunner` → `SandboxRunner` (`node:vm`) →
 `AutoFixLoop` (до 3 попыток) → `TimeMachine` (снапшоты в памяти) →
 `SemanticDiffEngine`. Хранилища нет, внешний сервис один — OpenAI-совместимый
-endpoint. PR #1 (`fix/pipeline-sandbox-hardening`) делает VS Code-версию рабочей.
+endpoint. PR #1 смержен: VS Code-версия рабочая, тесты 40/40; это финальное состояние прототипа.
 
-**Целевая (Chrome MV3):** предложение в [ADR-0001](decisions/0001-chrome-mv3-llm-adapters.md),
-статус Proposed.
+**Целевая (Chrome MV3):** [ADR-0001](decisions/0001-chrome-mv3-llm-adapters.md), статус Accepted.
+Объём MVP и этапы: [ROADMAP.md](ROADMAP.md).
 
 ## Риски и техдолг
 
 1. **Платформа не совпадает с целью.** Код написан под VS Code и Node
    (`vscode`, `node:vm`, `worker_threads`, `crypto`, `process.env`). В Chrome ничего
    из этого нет: нужен перенос, а не доработка.
-2. **Исполнение кода от LLM.** На `main` песочница `node:vm` пропускает
+2. **Исполнение кода от LLM.** До PR #1 песочница `node:vm` пропускала
    `constructor.constructor("return process")()`, то есть RCE в extension host.
-   В PR #1 этот вектор закрыт, но концепция семейства вообще запрещает исполнять
+   PR #1 этот вектор закрыл, но концепция семейства вообще запрещает исполнять
    код для проверки. В Chrome-версии песочницы быть не должно.
 3. **Обещание детерминизма LLM.** `temperature=0` и `seed` не гарантируют
    одинаковый ответ. README и позиционирование должны говорить о
@@ -60,6 +60,5 @@ endpoint. PR #1 (`fix/pipeline-sandbox-hardening`) делает VS Code-верс
    провайдеру. Это нужно раскрыть в privacy policy и в карточке CWS, получить
    явное согласие и запрашивать host permission на каждый endpoint во время работы.
    Это отличает продукт от остального семейства (там `connect-src 'none'`).
-5. **Нет проверки в реальной среде.** На `main` красный CI (23/24), нет
-   eslint, нет теста в настоящем редакторе или браузере. Голосовой ввод заявлен
+5. **Нет проверки в реальной среде.** Нет eslint, нет теста в настоящем редакторе или браузере. Голосовой ввод заявлен
    в README, но не реализован.
