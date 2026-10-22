@@ -11,6 +11,7 @@ import { CommandCenter } from "./ui/commandCenter";
 import { TimeMachine, VibeSnapshot } from "./ui/timeMachine";
 import { SemanticDiffEngine } from "./ui/semanticDiff";
 import { DeterministicLogger } from "./utils/logger";
+import { isSameFile } from "./utils/patch";
 
 const SUPPORTED_LANGUAGES = new Set(["typescript", "typescriptreact", "javascript", "javascriptreact"]);
 
@@ -212,13 +213,6 @@ async function restoreSnapshot(snapshot: VibeSnapshot): Promise<void> {
       throw new Error(`Не удалось восстановить ${file.filePath}`);
     }
   }
-}
-
-function isSameFile(targetFile: string, relativePath: string): boolean {
-  const normalize = (p: string) => p.replace(/\\/g, "/").replace(/^\.\//, "");
-  const target = normalize(targetFile);
-  const relative = normalize(relativePath);
-  return target === relative || relative.endsWith(`/${target}`) || target.endsWith(`/${relative}`);
 }
 
 function errorMessage(err: unknown): string {

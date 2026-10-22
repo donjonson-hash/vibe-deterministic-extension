@@ -54,12 +54,14 @@
     "vscode:prepublish": "npm run build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "build": "tsc -p ./",
-    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js",
+    "spike:build": "tsc -p tsconfig.spike.json"
   },
   "dependencies": {
     "typescript": "^5.4.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "0.132.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0"
   }

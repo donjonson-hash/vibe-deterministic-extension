@@ -7,3 +7,5 @@ out/
 .DS_Store
 coverage/
 dist-tests/
+dist-spike/
+spike/patch-eval/results/raw/

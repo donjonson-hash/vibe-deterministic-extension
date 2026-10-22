@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-spike"
+  },
+  "include": ["src/**/*", "spike/patch-eval/*.ts"],
+  "exclude": ["node_modules", "dist", "dist-tests", "dist-spike", "spike/patch-eval/fixtures"]
+}
