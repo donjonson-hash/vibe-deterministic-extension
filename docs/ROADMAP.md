@@ -1,6 +1,6 @@
 # Roadmap
 
-Статус: **черновик объёма MVP, ждёт утверждения владельца** (2026-10-22).
+Статус: **объём MVP утверждён владельцем** (2026-10-22). Текущий этап: 0, спайк (бюджет API до $20).
 Основа: [ADR-0001](decisions/0001-chrome-mv3-llm-adapters.md).
 
 ## Суть MVP
@@ -48,7 +48,7 @@
 - Нативный адаптер Gemini и structured outputs для каждого провайдера, если OpenAI-compat окажется слабым.
 - Локализация интерфейса на русский.
 
-## Next — каналы в ChatGPT и Claude ([ADR-0002](decisions/0002-chat-platform-channels.md), Proposed)
+## Next — каналы в ChatGPT и Claude ([ADR-0002](decisions/0002-chat-platform-channels.md), Accepted)
 
 После Unlisted beta расширения. Это не воронка (обе платформы отклоняют
 промо-приложения), а самостоятельный инструмент `check_patch` на общем ядре.
