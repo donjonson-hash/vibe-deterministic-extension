@@ -35,7 +35,7 @@ function buildWholeFileUser(task: EvalTask, source: string, errorFeedback?: stri
   return sections.join("\n\n");
 }
 
-function makeProvider(values: Record<string, string | undefined>): Provider {
+function makeProvider(values: Record<string, string | undefined>, sampling: boolean): Provider {
   const model = values.model!;
   const timeoutMs = Number(values["timeout-ms"] ?? 600_000);
   if (values.provider === "ollama") {
@@ -55,6 +55,7 @@ function makeProvider(values: Record<string, string | undefined>): Provider {
       baseUrl: values["base-url"] ?? "https://api.openai.com/v1",
       apiKey,
       timeoutMs,
+      sampling,
     });
   }
   if (values.provider === "anthropic") {
@@ -81,6 +82,7 @@ async function main(): Promise<void> {
       "timeout-ms": { type: "string" },
       "api-key-env": { type: "string" },
       effort: { type: "string" },
+      "no-sampling": { type: "boolean", default: false },
       repeat: { type: "string", default: "1" },
       "price-in": { type: "string", default: "0" },
       "price-out": { type: "string", default: "0" },
@@ -90,7 +92,8 @@ async function main(): Promise<void> {
     throw new Error("Required: --provider ollama|openai-compat|anthropic --model <id> --format sr|wf");
   }
   const format = values.format as Format;
-  const provider = makeProvider(values);
+  const { "no-sampling": noSampling, ...stringValues } = values;
+  const provider = makeProvider(stringValues, !noSampling);
   const retries = Number(values.retries);
   const priceIn = Number(values["price-in"]);
   const priceOut = Number(values["price-out"]);

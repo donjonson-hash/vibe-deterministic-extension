@@ -71,6 +71,8 @@ export interface OpenAiCompatibleOptions {
   baseUrl: string;
   apiKey: string;
   timeoutMs: number;
+  /** Reasoning models (e.g. current OpenAI ones) reject temperature/seed; omit them */
+  sampling: boolean;
 }
 
 /**
@@ -87,8 +89,7 @@ export function openAiCompatibleProvider(model: string, options: OpenAiCompatibl
       },
       body: JSON.stringify({
         model,
-        temperature: 0,
-        seed: 42,
+        ...(options.sampling ? { temperature: 0, seed: 42 } : {}),
         ...(json ? { response_format: { type: "json_object" } } : {}),
         messages: [
           { role: "system", content: system },
