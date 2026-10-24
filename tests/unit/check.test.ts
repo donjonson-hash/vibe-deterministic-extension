@@ -235,3 +235,31 @@ test("vendored deterministic-extensions core matches its provenance hashes", () 
     assert.equal(createHash("sha256").update(fs.readFileSync(path.join(dir, file))).digest("hex"), sha256, file);
   }
 });
+
+test("semantic checks preserve ASI, evaluation order and destructured declarations", () => {
+  for (const [before, after] of [
+    ['export function f() { return\n1; }', 'export function f() { return 1; }'],
+    ['const a = start();\nconst b = finish();', 'const b = finish();\nconst a = start();'],
+    ['const a = 1, {b} = oldConfig;', 'const a = 1, {b} = newConfig;'],
+  ]) assert.ok(compareCode(before, after, 'a.ts').changes.length > 0);
+});
+
+test("proposal limits reject oversized source, answer, candidate and unavailable diff", () => {
+  const source = 'export const a = 1;\n';
+  const check = (candidate: string) => checkProposal({source, fileName: 'a.ts', format: 'wf', answer: '```ts\n' + candidate + '\n```'});
+  assert.notEqual(check('//x\n'.repeat(4001)).stage, 'ok');
+  assert.notEqual(check('//' + 'x'.repeat(200001)).stage, 'ok');
+  assert.notEqual(check('//\ud800').stage, 'ok');
+  const before = Array.from({length: 1100}, (_, i) => `const a${i} = 1;`).join('\n');
+  const after = before.replaceAll('= 1', '= 2');
+  const result = checkProposal({source: before, fileName: 'a.ts', format: 'wf', answer: '```ts\n' + after + '\n```'});
+  assert.notEqual(result.stage, 'ok');
+  assert.equal(result.result, undefined);
+});
+
+
+test("source and answer limits are checked before parsing", () => {
+  const input = {source: '//'+ 'x'.repeat(200001), answer: 'not JSON', format: 'sr' as const, fileName:'a.ts'};
+  assert.equal(checkProposal(input).stage, 'limit');
+  assert.equal(checkProposal({...input,source:'const a=1;',answer:'x'.repeat(2000001)}).stage,'limit');
+});

@@ -1,5 +1,5 @@
-// Semantic diff of top-level entities. An entity's canonical text is its token sequence
-// without comments, so formatting and comment edits are not reported as changes.
+// Structural diff of top-level entities. AST fields preserve ASI and expressions;
+// only location, comment and literal presentation metadata are excluded.
 import type { ImportDeclaration, Node, Statement } from "@babel/types";
 import { compareOrdinal } from "../utils/patch";
 import { parseSource } from "./parse";
@@ -43,40 +43,16 @@ function importSpecifiers(declaration: ImportDeclaration): string[] {
   });
 }
 
-interface Token {
-  start: number;
-  end: number;
-  type: unknown;
-}
-
 const OTHER_KEY = "statement:<top-level>";
-
-function isComment(token: Token): boolean {
-  return token.type === "CommentLine" || token.type === "CommentBlock";
-}
-
-/** Index of the first token starting at or after `position` */
-function lowerBound(tokens: Token[], position: number): number {
-  let low = 0;
-  let high = tokens.length;
-  while (low < high) {
-    const mid = (low + high) >>> 1;
-    if (tokens[mid].start < position) low = mid + 1;
-    else high = mid;
-  }
-  return low;
-}
 
 function extractEntities(code: string, fileName: string): Map<string, Entity> {
   const ast = parseSource(code, fileName);
-  const tokens = ((ast.tokens ?? []) as Token[]).filter((token) => !isComment(token));
-  const canonical = (node: Node): string => {
-    const parts: string[] = [];
-    for (let i = lowerBound(tokens, node.start ?? 0); i < tokens.length && tokens[i].end <= (node.end ?? 0); i++) {
-      parts.push(code.slice(tokens[i].start, tokens[i].end));
-    }
-    return parts.join(" ");
-  };
+  // Structural AST identity preserves automatic semicolon insertion and operators.
+  // Locations, comments and raw literal spelling are presentation metadata only.
+  const ignored = new Set(['start', 'end', 'loc', 'extra', 'leadingComments',
+    'trailingComments', 'innerComments', 'comments', 'tokens', 'errors']);
+  const canonical = (node: Node): string => JSON.stringify(node,
+    (key, value) => ignored.has(key) ? undefined : value);
 
   const entities = new Map<string, Entity>();
   // Overloads, merged interfaces, repeated `var` and several imports from one module share a
@@ -100,6 +76,15 @@ function extractEntities(code: string, fileName: string): Map<string, Entity> {
   // Other top-level code (calls, `export default expr`, `export { a }`) is one entity, so a
   // change like `app.listen(80)` -> `app.listen(8080)` is not mistaken for formatting
   const others: Statement[] = [];
+  const order = ast.program.body.map(statement => {
+    const n = statement.type === 'ExportNamedDeclaration' && statement.declaration ? statement.declaration : statement;
+    if (n.type === 'VariableDeclaration') return n.declarations.map(d => canonical(d.id)).join(',');
+    if ('id' in n && n.id) return `${n.type}:${canonical(n.id as Node)}`;
+    if (n.type === 'ImportDeclaration') return `import:${n.source.value}`;
+    return n.type;
+  });
+  entities.set('statement:<evaluation-order>', {kind: 'statement', name: '<evaluation-order>',
+    isExported: false, canonicalText: JSON.stringify(order)});
 
   for (const statement of ast.program.body) {
     // The exported wrapper is the canonical node, so toggling `export` is a change
@@ -149,7 +134,7 @@ function extractEntities(code: string, fileName: string): Map<string, Entity> {
             registered = true;
           }
         }
-        if (registered) continue;
+        if (registered && declaration.declarations.every(d => d.id.type === "Identifier")) continue;
         break;
       }
       case "EmptyStatement":
@@ -186,6 +171,12 @@ export function compareCode(beforeCode: string, afterCode: string, fileName: str
         summary: `Удален ${entity.isExported ? "экспортируемый " : ""}${entity.kind} "${entity.name}"`,
       });
     } else if (entity.canonicalText !== next.canonicalText || entity.isExported !== next.isExported) {
+      // Additions/removals already have their own entries. Report relative order separately.
+      if (key === 'statement:<evaluation-order>') {
+        const a = JSON.parse(entity.canonicalText) as string[];
+        const b = JSON.parse(next.canonicalText) as string[];
+        if (JSON.stringify([...a].sort()) !== JSON.stringify([...b].sort())) continue;
+      }
       const kept = new Set(next.specifiers ?? []);
       const removedSpecifiers = entity.specifiers?.filter((specifier) => !kept.has(specifier));
       changes.push({
@@ -214,7 +205,7 @@ export function compareCode(beforeCode: string, afterCode: string, fileName: str
   const riskLevel = calculateRiskLevel(changes);
   const formattedSummary =
     changes.length === 0
-      ? `[${riskLevel}] Смысловых изменений AST не обнаружено (только форматирование или комментарии)`
+      ? `[${riskLevel}] Смысловых изменений AST не обнаружено (структура разобранного кода совпадает; это не доказательство эквивалентности)`
       : `[Риск: ${riskLevel}] ${changes.map((c) => c.summary).join(" | ")}`;
   return { fileName, changes, riskLevel, formattedSummary };
 }

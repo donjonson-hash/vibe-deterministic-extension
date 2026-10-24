@@ -4,6 +4,7 @@
 // Stages, in order: format (parse the answer) → apply → syntax → lint (new violations only).
 // The semantic diff and the line diff describe an accepted candidate; they never block it,
 // but `attention` lists changes that need an explicit confirmation.
+import { makeDocument } from "../vendor/deterministic-extensions/documents.mjs";
 import { detectEol, fromLf, toLf } from "../core/eol";
 import { DiffLimitError, LineDiff, diffLines } from "../core/lineDiff";
 import { SchemaValidationError, validateSchema } from "../llm/schemaParser";
@@ -16,7 +17,8 @@ import { checkSyntax } from "./syntax";
 
 /** sr: JSON with search/replace blocks; wf: the whole file in one fenced code block */
 export type ProposalFormat = "sr" | "wf";
-export type ProposalStage = "ok" | "format" | "apply" | "syntax" | "lint";
+export const CHECK_POLICY = "proposal-check-v2";
+export type ProposalStage = "limit" | "incomplete" | "ok" | "format" | "apply" | "syntax" | "lint";
 
 export interface ProposalInput {
   /** The answer text exactly as received */
@@ -28,6 +30,7 @@ export interface ProposalInput {
 }
 
 export interface ProposalCheck {
+  policy: typeof CHECK_POLICY;
   stage: ProposalStage;
   /** Why the proposal was rejected; suitable as feedback for an auto-fix retry */
   error?: string;
@@ -40,10 +43,15 @@ export interface ProposalCheck {
   attention: string[];
 }
 
-const reject = (stage: Exclude<ProposalStage, "ok">, error: string): ProposalCheck => ({ stage, error, attention: [] });
+const reject = (stage: Exclude<ProposalStage, "ok">, error: string): ProposalCheck => ({ policy: CHECK_POLICY, stage, error, attention: [] });
 
 export function checkProposal(input: ProposalInput): ProposalCheck {
   const { answer, format, source, fileName } = input;
+  try {
+    makeDocument(source);
+    if (answer.length > 2_000_000) return reject('limit', 'Answer exceeds 2000000 code units');
+    if (format !== 'sr' && format !== 'wf') return reject('format', 'Unsupported proposal format');
+  } catch (error) { return reject('limit', String(error)); }
   if (!isSupportedFile(fileName)) {
     return reject("format", `UnsupportedFile: only TypeScript and JavaScript files are supported, got "${fileName}"`);
   }
@@ -97,6 +105,9 @@ export function checkProposal(input: ProposalInput): ProposalCheck {
     if (sourceText.endsWith("\n") && !candidate.endsWith("\n")) candidate += "\n";
   }
 
+  try { makeDocument(mixed ? candidate : fromLf(candidate, eol)); }
+  catch (error) { return reject('limit', String(error)); }
+
   if (candidate === sourceText) {
     return reject("apply", "NoChange: the result is identical to the original file");
   }
@@ -126,10 +137,11 @@ export function checkProposal(input: ProposalInput): ProposalCheck {
     diff = diffLines(beforeLf, afterLf);
   } catch (err) {
     if (!(err instanceof DiffLimitError)) throw err;
-    attention.push(`Построчный дифф не показан: ${err.message}`);
+    return reject("incomplete", `Построчный дифф недоступен: ${err.message}`);
   }
 
   return {
+    policy: CHECK_POLICY,
     stage: "ok",
     intentSummary,
     result: mixed ? candidate : fromLf(candidate, eol),

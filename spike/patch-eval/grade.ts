@@ -8,7 +8,7 @@ import { compareCode } from "../../src/check/semanticDiff";
 export { extractFencedBlocks };
 
 /** `incomplete`: the provider stopped early (refusal, output limit); like `transport`, not retried */
-export type Stage = "ok" | "transport" | "incomplete" | "format" | "apply" | "syntax" | "lint";
+export type Stage = "limit" | "ok" | "transport" | "incomplete" | "format" | "apply" | "syntax" | "lint";
 export type Format = "sr" | "wf";
 
 export interface AttemptOutcome {
