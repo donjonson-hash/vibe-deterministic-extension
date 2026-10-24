@@ -2,7 +2,15 @@
 
 Read first: `docs/PROJECT.md` (product, goal, risks) and `docs/decisions/` (ADRs).
 
-## Status
+## Offline pilot update (2026-10-24)
+
+Chrome shell is in `chrome/`; `npm run package:chrome` creates the reproducible ZIP.
+`npm run test:chrome` tests the installed MV3 extension. The legacy VS Code entry
+is excluded from this bundle. Drydock report import is a single-file, explicitly
+partial adapter (`scripts/drydock-export.py`); it never executes candidate code.
+Policy `proposal-check-v2` uses structural AST identity and rejects missing diffs.
+
+## Previous status
 
 `main` holds the final VS Code prototype (v0.1.0, PR #1 merged, 40/40 tests).
 The product is moving to a Chrome MV3 extension in the deterministic-extensions

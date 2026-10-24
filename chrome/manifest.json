@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Vibe — проверка изменений",
+  "version": "0.2.0",
+  "description": "Локальный просмотр и проверка предложений для TS/JS. Без исполнения кода.",
+  "action": {
+    "default_title": "Открыть Vibe"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"
+  }
+}
