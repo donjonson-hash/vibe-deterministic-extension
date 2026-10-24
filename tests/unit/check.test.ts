@@ -263,3 +263,18 @@ test("source and answer limits are checked before parsing", () => {
   assert.equal(checkProposal(input).stage, 'limit');
   assert.equal(checkProposal({...input,source:'const a=1;',answer:'x'.repeat(2000001)}).stage,'limit');
 });
+
+test("deep but bounded parsed expressions produce a semantic report without stack overflow", () => {
+  // Warm up Babel in the same sequence that exposed a second recursion limit in
+  // JSON.stringify: parsing succeeded, but structural comparison threw RangeError.
+  for (const count of [500, 1000, 1500, 2000, 3000, 4000, 5000]) {
+    const source = `export const a = ${Array(count).fill("1").join("+")};`;
+    const answer = JSON.stringify({ intentSummary: "Change the first operand", patches: [{
+      targetFile: "deep.ts", searchBlock: "= 1+", replaceBlock: "= 2+", explanation: "Change one literal",
+    }] });
+    const result = checkProposal({ source, answer, format: "sr", fileName: "deep.ts" });
+    assert.equal(result.stage, "ok", `expression with ${count} operands: ${result.error}`);
+    assert.ok(result.semantic?.changes.some(change => change.name === "a" && change.changeType === "MODIFIED"));
+    assert.equal(result.result, source.replace("= 1+", "= 2+"));
+  }
+});
