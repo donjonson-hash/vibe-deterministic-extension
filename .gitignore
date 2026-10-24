@@ -9,3 +9,7 @@ coverage/
 dist-tests/
 dist-spike/
 spike/patch-eval/results/raw/
+
+dist-chrome/
+artifacts/
+__pycache__/
