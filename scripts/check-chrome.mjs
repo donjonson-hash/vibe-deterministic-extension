@@ -29,6 +29,7 @@ try {
   await page.click("#check");
   await page.waitForFunction(() => !document.querySelector("#accept").disabled);
   assert.match(await page.textContent("#diff"), /Привет/);
+  assert.equal(await page.isVisible("#attention-label"), false);
   assert.match(await page.textContent("#source"), /Hello/);
   await page.click("#accept");
   assert.match(await page.textContent("#source"), /Привет/);
