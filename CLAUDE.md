@@ -23,10 +23,14 @@ modules and their tests. Update this file when the Chrome stack lands.
 
 ## Stack (current `main`)
 
-- TypeScript 5 (strict), CommonJS output to `dist/`, VS Code API `^1.90`.
-- Runtime dependency: `typescript` Compiler API (AST, transpile).
+- TypeScript 5 (strict), `module: node20` (CommonJS output that can load ESM-only
+  packages) to `dist/`, VS Code API `^1.90`. Node `^22.18 || >=24.11`.
+- Runtime dependencies: `@babel/parser` 8.0.7 (new checks in `src/check/`) and,
+  until the VS Code code is removed, the `typescript` Compiler API.
+- Vendored `.mjs` core is copied next to compiled output by `scripts/copy-vendor.mjs`
+  (part of `build`, `test`, `spike:build`); tsc does not emit `.mjs`.
 - Tests: built-in `node:test`, compiled via `tsconfig.test.json` to `dist-tests/`.
-- CI: `.github/workflows/release.yml` (Node 20: `npm ci`, typecheck, test, build);
+- CI: `.github/workflows/release.yml` (Node 24: `npm ci`, typecheck, test, build);
   `.github/workflows/codeql.yml` (CodeQL for JS/TS and Actions on PRs to `main`).
 
 ## Commands
@@ -55,10 +59,14 @@ Manual run: open the folder in VS Code and press F5 (Extension Development Host)
 ## Layout
 
 ```
-src/extension.ts   VS Code entry, command registration
+src/check/         pure Babel checks for the extension: syntax, lint, semantic diff,
+                   fences, checkProposal() (no DOM, chrome.* or Node APIs)
+src/core/eol.ts, lineDiff.ts   line-ending policy, line-myers-v1 diff (pure)
+src/vendor/deterministic-extensions/   unmodified family core + provenance.json
+src/extension.ts   VS Code entry, command registration (legacy, removed in stage 1)
 src/core/          context extraction (AST), state machine, sandbox (worker_threads + node:vm)
 src/llm/           LLM client, prompt templates, JSON schema validation
-src/pipeline/      syntax check, security lint, auto-fix loop
+src/pipeline/      legacy TS-compiler checks and auto-fix loop
 src/ui/            intent parsing, voice normalizer, semantic diff, snapshots
 src/utils/         sha256, hash-chain logger
 tests/unit/        one test file per subsystem

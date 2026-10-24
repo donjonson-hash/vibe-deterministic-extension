@@ -10,7 +10,8 @@
     "url": "https://github.com/donjonson-hash/vibe-deterministic-extension.git"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.90.0",
+    "node": "^22.18.0 || >=24.11.0"
   },
   "categories": [
     "AI",
@@ -53,11 +54,12 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "build": "tsc -p ./",
-    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/unit/*.test.js",
-    "spike:build": "tsc -p tsconfig.spike.json"
+    "build": "tsc -p ./ && node scripts/copy-vendor.mjs dist",
+    "test": "tsc -p tsconfig.test.json && node scripts/copy-vendor.mjs dist-tests/src && node --test dist-tests/tests/unit/*.test.js",
+    "spike:build": "tsc -p tsconfig.spike.json && node scripts/copy-vendor.mjs dist-spike/src"
   },
   "dependencies": {
+    "@babel/parser": "8.0.7",
     "typescript": "^5.4.0"
   },
   "devDependencies": {

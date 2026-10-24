@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "source": "https://github.com/donjonson-hash/deterministic-extensions",
+  "revision": "3f018143350d7542935a478e6533f35694a7a6c2",
+  "sourcePath": "src/core/",
+  "note": "Unmodified copies. Update only by re-vendoring a reviewed revision; tests check these hashes.",
+  "files": {
+    "canonical.mjs": "c54afb13b769e3809f4f582a1dc62a1953d8220f594806f21d028952ba6e3ba2",
+    "comparison.mjs": "88749b10aa042f3f23cd2dd43bc6904df65ea59eeaedd600cca66e7f6b069b9a",
+    "documents.mjs": "762863bd78e3dbdcfe3a3e0f599652c16be5b6fd1bcb87ee9b8785dac857ffc6",
+    "gates.mjs": "b05e2fc44b13ac9302dcaf02f76fe32c903aac24aa910992bf701e8c4d78e160",
+    "session.mjs": "4863edf1f2443646777f9c9578e5642f4c331037cd1193fded69b43d0b982b8e",
+    "utf8.mjs": "d1cd339c575184be488bbcf2c6d30acf087d68f4b1c657ebb45043f37f332643"
+  }
+}

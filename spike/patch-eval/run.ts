@@ -37,6 +37,7 @@ function makeProvider(values: Record<string, string | undefined>, sampling: bool
     return ollamaProvider(model, {
       baseUrl: values["base-url"] ?? "http://127.0.0.1:11434",
       numCtx: Number(values["num-ctx"] ?? 16384),
+      numPredict: Number(values["num-predict"] ?? 8192),
       timeoutMs,
     });
   }
@@ -75,6 +76,7 @@ async function main(): Promise<void> {
       out: { type: "string" },
       "base-url": { type: "string" },
       "num-ctx": { type: "string" },
+      "num-predict": { type: "string" },
       "timeout-ms": { type: "string" },
       "api-key-env": { type: "string" },
       effort: { type: "string" },
@@ -132,7 +134,9 @@ async function main(): Promise<void> {
           ? ungraded({ stage: "incomplete", error: `Response stopped early: ${result.incomplete}` })
           : gradeResponse(task, format, result.text, source);
       } catch (err) {
-        graded = ungraded({ stage: "transport", error: err instanceof Error ? err.message : String(err) });
+        // Node's fetch reports "fetch failed"; the cause says why (e.g. UND_ERR_HEADERS_TIMEOUT)
+        const cause = err instanceof Error && err.cause instanceof Error ? ` (${(err.cause as { code?: string }).code ?? err.cause.message})` : "";
+        graded = ungraded({ stage: "transport", error: (err instanceof Error ? err.message : String(err)) + cause });
       }
       const outcome: AttemptOutcome = graded.outcome;
       attempts.push({ stage: outcome.stage, error: outcome.error && redactSecrets(outcome.error).slice(0, 500), ...usage });
