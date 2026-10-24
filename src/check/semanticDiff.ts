@@ -45,14 +45,54 @@ function importSpecifiers(declaration: ImportDeclaration): string[] {
 
 const OTHER_KEY = "statement:<top-level>";
 
+// Babel owns these objects; only its location/comment/literal presentation metadata
+// is omitted. Serialize iteratively: valid left-deep expressions can outgrow the
+// JavaScript call stack even though the parser and iterative AST walker accept them.
+const IGNORED_AST_FIELDS = new Set(['start', 'end', 'loc', 'extra', 'leadingComments',
+  'trailingComments', 'innerComments', 'comments', 'tokens', 'errors']);
+
+function canonical(node: Node): string {
+  type Task = { value: unknown } | { text: string };
+  const stack: Task[] = [{ value: node }];
+  const output: string[] = [];
+  while (stack.length > 0) {
+    const task = stack.pop()!;
+    if ('text' in task) {
+      output.push(task.text);
+      continue;
+    }
+    const value = task.value;
+    if (value === null || typeof value !== 'object') {
+      // JSON's array semantics use null for missing/undefined entries. Undefined
+      // object fields are excluded below, exactly as by the previous replacer.
+      output.push(JSON.stringify(value) ?? 'null');
+      continue;
+    }
+    if (Array.isArray(value)) {
+      output.push('[');
+      stack.push({ text: ']' });
+      for (let index = value.length - 1; index >= 0; index--) {
+        stack.push({ value: value[index] });
+        if (index > 0) stack.push({ text: ',' });
+      }
+      continue;
+    }
+    const object = value as Record<string, unknown>;
+    const keys = Object.keys(object).filter(key => !IGNORED_AST_FIELDS.has(key)
+      && object[key] !== undefined && typeof object[key] !== 'function' && typeof object[key] !== 'symbol');
+    output.push('{');
+    stack.push({ text: '}' });
+    for (let index = keys.length - 1; index >= 0; index--) {
+      const key = keys[index];
+      stack.push({ value: object[key] });
+      stack.push({ text: `${index > 0 ? ',' : ''}${JSON.stringify(key)}:` });
+    }
+  }
+  return output.join('');
+}
+
 function extractEntities(code: string, fileName: string): Map<string, Entity> {
   const ast = parseSource(code, fileName);
-  // Structural AST identity preserves automatic semicolon insertion and operators.
-  // Locations, comments and raw literal spelling are presentation metadata only.
-  const ignored = new Set(['start', 'end', 'loc', 'extra', 'leadingComments',
-    'trailingComments', 'innerComments', 'comments', 'tokens', 'errors']);
-  const canonical = (node: Node): string => JSON.stringify(node,
-    (key, value) => ignored.has(key) ? undefined : value);
 
   const entities = new Map<string, Entity>();
   // Overloads, merged interfaces, repeated `var` and several imports from one module share a

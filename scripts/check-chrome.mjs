@@ -133,6 +133,35 @@ try {
     path: "artifacts/chrome-preview.png",
     fullPage: true,
   });
+  // Deterministic delivery of a queued response after a session reset. The
+  // production Worker is mocked only on this separate page to force event order.
+  const racePage = await context.newPage();
+  await racePage.addInitScript(() => {
+    window.testWorkers = [];
+    window.Worker = class {
+      constructor() { window.testWorkers.push(this); }
+      postMessage(data) { this.request = data; }
+      terminate() { this.terminated = true; }
+    };
+  });
+  await racePage.goto(`chrome-extension://${id}/app.html`);
+  await racePage.click('#example');await racePage.click('#check');
+  await racePage.setInputFiles('#file',{name:'greet.ts',mimeType:'text/plain',buffer:Buffer.from('export const different = 1;\n')});
+  await racePage.waitForFunction(()=>document.querySelector('#source').textContent.includes('different'));
+  await racePage.click('#check');
+  const outcome = await racePage.evaluate(() => {
+    const [old, fresh] = window.testWorkers;
+    const equalTickets = JSON.stringify(old.request.ticket) === JSON.stringify(fresh.request.ticket);
+    old.onmessage({data:{ticket:old.request.ticket,result:{stage:'ok',result:'export const stale = 1;',attention:[],diff:{rows:[]}}}});
+    old.onerror();
+    return {equalTickets,disabled:document.querySelector('#accept').disabled,
+      terminated:!!fresh.terminated,source:document.querySelector('#source').textContent,
+      status:document.querySelector('#status').textContent};
+  });
+  assert.equal(outcome.equalTickets,true);
+  assert.equal(outcome.disabled,true);assert.equal(outcome.terminated,false);
+  assert.match(outcome.source,/different/);assert.equal(outcome.status,'Проверяем…');
+  await racePage.close();
   assert.deepEqual(errors, []);
   console.log(
     "Installed MV3: preview, explicit accept, Undo/Redo, BOM/CRLF download, stale/cancel and invalid UTF-8 passed.",

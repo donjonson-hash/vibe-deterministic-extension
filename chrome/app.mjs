@@ -122,16 +122,21 @@ $("check").onclick = () => {
   invalidate();
   const captured = context(),
     revision = session.revision,
-    ticket = gate.issue(revision, captured);
+    epoch = generation,
+    requestGate = gate,
+    ticket = requestGate.issue(revision, captured);
   $("status").textContent = "Проверяем…";
-  worker = new Worker("worker.js", { type: "module" });
-  worker.onerror = () => {
+  const requestWorker = new Worker("worker.js", { type: "module" });
+  worker = requestWorker;
+  const current = () => epoch === generation && gate === requestGate && worker === requestWorker;
+  requestWorker.onerror = () => {
+    if (!current()) return;
     invalidate();
     $("status").textContent = "Проверка недоступна: ошибка worker.";
   };
-  worker.onmessage = ({ data }) => {
-    if (!gate.accept(data.ticket, session.revision, context())) return;
-    worker?.terminate();
+  requestWorker.onmessage = ({ data }) => {
+    if (!current() || !requestGate.accept(data.ticket, session.revision, context())) return;
+    requestWorker.terminate();
     worker = null;
     const r = data.result;
     if (r.stage !== "ok" || typeof r.result !== "string" || !r.diff) {
@@ -161,7 +166,7 @@ $("check").onclick = () => {
     $("attention-label").hidden = !r.attention.length;
     $("accept").disabled = !!r.attention.length;
   };
-  worker.postMessage({
+  requestWorker.postMessage({
     ticket,
     input: {
       source: session.b.raw,
