@@ -15,6 +15,7 @@ const $ = (id) => document.getElementById(id);
 let session = createSession(),
   serial = 0,
   generation = 0,
+  reportSequence = 0,
   pending = null,
   worker = null;
 let gate = createResultGate();
@@ -212,6 +213,8 @@ $("candidate").onclick = () => {
   if (pending) download(pending.document);
 };
 $("report").onchange = async () => {
+  const request = ++reportSequence;
+  $("report-details").textContent = "";
   const epoch = generation,
     file = $("report").files[0],
     candidate = pending?.document;
@@ -226,13 +229,13 @@ $("report").onchange = async () => {
       ),
       (x) => x.toString(16).padStart(2, "0"),
     ).join("");
-    if (epoch !== generation) return;
+    if (epoch !== generation || request !== reportSequence) return;
     const report = validateDrydockReport(raw, hash, $("filename").value);
     $("report-details").textContent = JSON.stringify(report, null, 2);
     $("report-status").textContent =
       `Drydock: ${report.status}. Находок: ${report.findings.length}. Ограничения: ${report.limitations.join("; ")}. Импортированный отчёт не является подписанной аттестацией.`;
   } catch (e) {
-    if (epoch === generation)
+    if (epoch === generation && request === reportSequence)
       $("report-status").textContent = `Отчёт отклонён: ${e}`;
   } finally {
     $("report").value = "";

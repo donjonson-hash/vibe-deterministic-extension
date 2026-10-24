@@ -3,6 +3,7 @@ import { mkdtemp, rm, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 const profile = await mkdtemp(join(tmpdir(), "vibe-browser-"));
 const extension = resolve("dist-chrome");
 const context = await chromium.launchPersistentContext(profile, {
@@ -69,6 +70,63 @@ try {
   await page.click("#example");
   await page.click("#check");
   await page.waitForFunction(() => !document.querySelector("#accept").disabled);
+  const candidateDownload = page.waitForEvent("download");
+  await page.click("#candidate");
+  const candidateBytes = await readFile(await (await candidateDownload).path());
+  const evidence = {
+    schema: "vibe-drydock-evidence-v1",
+    file: "greet.ts",
+    candidate_sha256: createHash("sha256").update(candidateBytes).digest("hex"),
+    source_snapshot_sha256: "b".repeat(64),
+    catalog_sha256: "c".repeat(64),
+    engine_version: "test-fixture",
+    runtime_verified: false,
+    status: "unknown",
+    findings: [{ status: "unknown", title: "Unresolved applicability" }],
+    limitations: ["single_file_only"],
+  };
+  const importEvidence = async (value) =>
+    page.setInputFiles("#report", {
+      name: "evidence.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(value)),
+    });
+  await importEvidence(evidence);
+  await page.waitForFunction(() =>
+    document
+      .querySelector("#report-status")
+      .textContent.includes("Drydock: unknown"),
+  );
+  assert.match(
+    await page.textContent("#report-details"),
+    /Unresolved applicability/,
+  );
+  await importEvidence({ ...evidence, candidate_sha256: "d".repeat(64) });
+  await page.waitForFunction(() =>
+    document.querySelector("#report-status").textContent.includes("отклонён"),
+  );
+  await page.fill(
+    "#answer",
+    JSON.stringify({
+      intentSummary: "Remove greet",
+      patches: [
+        {
+          targetFile: "greet.ts",
+          searchBlock:
+            'export function greet(name: string): string {\r\n  return "Hello, " + name;\r\n}\r\n',
+          replaceBlock: 'export const greeting = "hello";\r\n',
+          explanation: "replacement",
+        },
+      ],
+    }),
+  );
+  await page.click("#check");
+  await page.waitForFunction(
+    () => !document.querySelector("#attention-label").hidden,
+  );
+  assert.equal(await page.isDisabled("#accept"), true);
+  await page.check("#attention");
+  assert.equal(await page.isDisabled("#accept"), false);
   await mkdir("artifacts", { recursive: true });
   await page.screenshot({
     path: "artifacts/chrome-preview.png",
